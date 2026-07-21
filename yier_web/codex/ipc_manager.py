@@ -9,10 +9,11 @@ from pathlib import Path
 import shlex
 import tomllib
 import uuid
-from typing import Any, Callable
+from typing import Callable
 
 from codex_ipc import (
     AppServerConfig,
+    AsyncCodexClient,
     CodexIpcConfig,
     CodexIpcSession,
     JsonDict,
@@ -20,8 +21,7 @@ from codex_ipc import (
     SshWebsocketAppServerConfig,
     materialize_conversation_state,
 )
-from codex_app_server import AsyncAppServerClient
-from codex_app_server.generated.v2_all import (
+from openai_codex.generated.v2_all import (
     AbsolutePathBuf,
     ActiveThreadStatus,
     CustomSessionSource,
@@ -35,7 +35,6 @@ from codex_app_server.generated.v2_all import (
     Thread,
     ThreadListResponse,
     ThreadStatus,
-    LoginAccountResponse,
 )
 from yier_web.config import AppConfigService
 from yier_web.codex.session_events import (
@@ -340,17 +339,15 @@ class CodexIpcManager:
         )
         login_id = uuid.uuid4().hex
         try:
-            async with AsyncAppServerClient(
+            async with AsyncCodexClient(
                 config=self._remote_app_server_config(connection)
             ) as client:
                 await client.initialize()
-                response = await client.request(
-                    "account/login/start",
+                response = await client.account_login_start(
                     {
                         "type": "chatgpt",
                         "codexStreamlinedLogin": True,
                     },
-                    response_model=LoginAccountResponse,
                 )
         except Exception as exc:
             detail = _compact_text(exc, limit=180) or exc.__class__.__name__
@@ -403,12 +400,17 @@ class CodexIpcManager:
             "Signing in with API key",
         )
         try:
-            async with AsyncAppServerClient(
+            async with AsyncCodexClient(
                 config=self._remote_app_server_config(connection)
             ) as client:
                 await client.initialize()
-                await client.account_login_api_key(api_key)
-                account = await client.account_read(refresh_token=False)
+                await client.account_login_start(
+                    {
+                        "type": "apiKey",
+                        "apiKey": api_key,
+                    }
+                )
+                account = await client.account_read({"refreshToken": False})
         except Exception as exc:
             detail = _compact_text(exc, limit=180) or exc.__class__.__name__
             self._set_remote_connection_status(connection_id, "error", detail)

@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
 
-from codex_app_server.generated.v2_all import (
+from openai_codex.generated.v2_all import (
     AbsolutePathBuf,
     IdleThreadStatus,
     SessionSource,
@@ -46,6 +46,7 @@ def fake_thread(
         model_provider="openai",
         name=name,
         preview=preview,
+        session_id=thread_id,
         source=SessionSource(root=SessionSourceValue.app_server),
         status=ThreadStatus(root=IdleThreadStatus(type="idle")),
         turns=[],
@@ -1708,11 +1709,11 @@ def test_codex_remote_connection_api_key_login_uses_remote_app_server(
         )
         calls: list[tuple[str, Any]] = []
 
-        class FakeAsyncAppServerClient:
+        class FakeAsyncCodexClient:
             def __init__(self, *, config: Any) -> None:
                 calls.append(("config", config))
 
-            async def __aenter__(self) -> "FakeAsyncAppServerClient":
+            async def __aenter__(self) -> "FakeAsyncCodexClient":
                 calls.append(("enter", None))
                 return self
 
@@ -1722,26 +1723,28 @@ def test_codex_remote_connection_api_key_login_uses_remote_app_server(
             async def initialize(self) -> None:
                 calls.append(("initialize", None))
 
-            async def account_login_api_key(self, api_key: str) -> None:
-                calls.append(("login", api_key))
+            async def account_login_start(self, params: dict[str, Any]) -> None:
+                calls.append(("login", params))
 
-            async def account_read(self, *, refresh_token: bool) -> SimpleNamespace:
-                calls.append(("read", refresh_token))
+            async def account_read(
+                self, params: dict[str, Any]
+            ) -> SimpleNamespace:
+                calls.append(("read", params))
                 return SimpleNamespace(
                     account=SimpleNamespace(root=SimpleNamespace(type="apiKey"))
                 )
 
         monkeypatch.setattr(
-            "yier_web.codex.ipc_manager.AsyncAppServerClient",
-            FakeAsyncAppServerClient,
+            "yier_web.codex.ipc_manager.AsyncCodexClient",
+            FakeAsyncCodexClient,
         )
 
         result = await manager.login_remote_api_key(connection.id, "sk-test")
 
         assert result.ok is True
         assert result.detail == "Signed in with apiKey."
-        assert ("login", "sk-test") in calls
-        assert ("read", False) in calls
+        assert ("login", {"type": "apiKey", "apiKey": "sk-test"}) in calls
+        assert ("read", {"refreshToken": False}) in calls
         statuses = manager.remote_connections().statuses
         assert statuses[connection.id].status == "connected"
 
@@ -1781,11 +1784,11 @@ def test_codex_remote_chatgpt_login_starts_port_forward(
                 login_id="login-1",
             )
 
-        class FakeAsyncAppServerClient:
+        class FakeAsyncCodexClient:
             def __init__(self, *, config: Any) -> None:
                 client_calls.append(("config", config))
 
-            async def __aenter__(self) -> "FakeAsyncAppServerClient":
+            async def __aenter__(self) -> "FakeAsyncCodexClient":
                 return self
 
             async def __aexit__(self, _exc_type: Any, _exc: Any, _tb: Any) -> None:
@@ -1794,14 +1797,11 @@ def test_codex_remote_chatgpt_login_starts_port_forward(
             async def initialize(self) -> None:
                 client_calls.append(("initialize", None))
 
-            async def request(
+            async def account_login_start(
                 self,
-                method: str,
                 params: dict[str, Any],
-                *,
-                response_model: Any,
             ) -> FakeLoginResponse:
-                client_calls.append((method, params))
+                client_calls.append(("account/login/start", params))
                 return FakeLoginResponse()
 
         class FakeProcess:
@@ -1826,8 +1826,8 @@ def test_codex_remote_chatgpt_login_starts_port_forward(
             return FakeProcess()
 
         monkeypatch.setattr(
-            "yier_web.codex.ipc_manager.AsyncAppServerClient",
-            FakeAsyncAppServerClient,
+            "yier_web.codex.ipc_manager.AsyncCodexClient",
+            FakeAsyncCodexClient,
         )
         monkeypatch.setattr(
             "yier_web.codex.ipc_manager.asyncio.create_subprocess_exec",
