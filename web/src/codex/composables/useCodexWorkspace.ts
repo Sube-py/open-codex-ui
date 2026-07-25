@@ -13,7 +13,6 @@ import type {
   CodexSocketStatus,
   CodexThreadGoal,
   CodexThreadGoalStatus,
-  CodexTurnState,
   CodexThreadCreateResponse,
   CodexThreadForkResponse,
   CodexThreadStatePayload,
@@ -70,7 +69,12 @@ function persistActiveThreadId(threadId: string, enabled = true) {
 }
 
 function emptyWorkspace(): CodexWorkspaceResponse {
-  return { projects: [], paired_editors: [], remote_connection_statuses: {} }
+  return {
+    projects: [],
+    recent_threads: [],
+    paired_editors: [],
+    remote_connection_statuses: {},
+  }
 }
 
 function normalizeWorkspace(value: unknown): CodexWorkspaceResponse {
@@ -80,10 +84,9 @@ function normalizeWorkspace(value: unknown): CodexWorkspaceResponse {
   const record = value as Partial<CodexWorkspaceResponse>
   return {
     projects: Array.isArray(record.projects) ? record.projects : [],
+    recent_threads: Array.isArray(record.recent_threads) ? record.recent_threads : [],
     paired_editors: Array.isArray(record.paired_editors) ? record.paired_editors : [],
-    remote_connections: Array.isArray(record.remote_connections)
-      ? record.remote_connections
-      : [],
+    remote_connections: Array.isArray(record.remote_connections) ? record.remote_connections : [],
     active_remote_connection_id:
       typeof record.active_remote_connection_id === 'string'
         ? record.active_remote_connection_id
@@ -129,9 +132,7 @@ function normalizeThreadPayload(
       record.stream_role && typeof record.stream_role === 'object'
         ? (record.stream_role as JsonRecord)
         : null,
-    queued_followups: Array.isArray(record.queued_followups)
-      ? record.queued_followups
-      : [],
+    queued_followups: Array.isArray(record.queued_followups) ? record.queued_followups : [],
   }
 }
 
@@ -341,29 +342,26 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
   const projectPathDraft = ref('')
 
   const flatThreads = computed<CodexNativeSessionSummary[]>(() =>
-    workspace.value.projects
-      .flatMap((project) => project.sessions)
-      .sort(
-        (left, right) =>
-          right.updated_at - left.updated_at ||
-          right.started_at - left.started_at ||
-          right.thread_id.localeCompare(left.thread_id),
-      ),
+    [
+      ...workspace.value.projects.flatMap((project) => project.sessions),
+      ...(workspace.value.recent_threads ?? []),
+    ].sort(
+      (left, right) =>
+        right.updated_at - left.updated_at ||
+        right.started_at - left.started_at ||
+        right.thread_id.localeCompare(left.thread_id),
+    ),
   )
 
   const activeThreadPayload = computed(() =>
-    activeThreadId.value ? threadPayloads.value[activeThreadId.value] ?? null : null,
+    activeThreadId.value ? (threadPayloads.value[activeThreadId.value] ?? null) : null,
   )
   const activeThreadState = computed(() => activeThreadPayload.value?.state ?? null)
   const activeThread = computed(
-    () =>
-      flatThreads.value.find((thread) => thread.thread_id === activeThreadId.value) ??
-      null,
+    () => flatThreads.value.find((thread) => thread.thread_id === activeThreadId.value) ?? null,
   )
   const activeThreadHostId = computed(() => {
-    const summaryHostId = activeThread.value
-      ? threadHostId(activeThread.value)
-      : ''
+    const summaryHostId = activeThread.value ? threadHostId(activeThread.value) : ''
     const stateHostId = activeThreadState.value?.hostId
     return (
       summaryHostId ||
@@ -373,9 +371,10 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     )
   })
   const activeStatus = computed(() => threadStatus(activeThreadState.value))
-  const isActiveThreadLoading = computed(() =>
-    Boolean(activeThreadId.value) &&
-    (openingThreadId.value === activeThreadId.value || !activeThreadState.value),
+  const isActiveThreadLoading = computed(
+    () =>
+      Boolean(activeThreadId.value) &&
+      (openingThreadId.value === activeThreadId.value || !activeThreadState.value),
   )
   const isActiveTurnInProgress = computed(() => isWorkingStatus(activeStatus.value))
   const activeMode = computed<CodexWorkMode>(() =>
@@ -437,8 +436,15 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
       })
       return projectChanged ? { ...project, sessions } : project
     })
+    const recentThreads = (workspace.value.recent_threads ?? []).map((thread) => {
+      if (thread.thread_id !== threadId || thread.status === status) {
+        return thread
+      }
+      changed = true
+      return { ...thread, status }
+    })
     if (changed) {
-      workspace.value = { ...workspace.value, projects }
+      workspace.value = { ...workspace.value, projects, recent_threads: recentThreads }
     }
   }
 
@@ -579,16 +585,11 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     }
     const resolvedHostId =
       hostId?.trim() ||
-      threadHostId(
-        flatThreads.value.find((thread) => thread.thread_id === normalizedThreadId),
-      )
+      threadHostId(flatThreads.value.find((thread) => thread.thread_id === normalizedThreadId))
 
     openingThreadId.value = normalizedThreadId
     try {
-      if (
-        activeSubscriptionId.value &&
-        activeSubscriptionId.value !== normalizedThreadId
-      ) {
+      if (activeSubscriptionId.value && activeSubscriptionId.value !== normalizedThreadId) {
         await socket
           .sendCommand('unsubscribe_thread', {
             thread_id: activeSubscriptionId.value,
@@ -598,13 +599,10 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
       activeThreadId.value = normalizedThreadId
       activeSubscriptionId.value = normalizedThreadId
       persistActiveThreadId(normalizedThreadId, persistThreadSelection)
-      const payload = await socket.sendCommand<CodexThreadStatePayload>(
-        'subscribe_thread',
-        {
-          thread_id: normalizedThreadId,
-          ...(resolvedHostId !== 'local' ? { host_id: resolvedHostId } : {}),
-        },
-      )
+      const payload = await socket.sendCommand<CodexThreadStatePayload>('subscribe_thread', {
+        thread_id: normalizedThreadId,
+        ...(resolvedHostId !== 'local' ? { host_id: resolvedHostId } : {}),
+      })
       const normalizedPayload = normalizeThreadPayload(payload, normalizedThreadId)
       if (normalizedPayload) {
         setThreadPayload(normalizedPayload)
@@ -621,15 +619,10 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
 
   async function startThread(projectPath?: string, hostId = 'local') {
     return await runCommand(async () => {
-      const payload = await socket.sendCommand<CodexThreadCreateResponse>(
-        'start_thread',
-        {
-          project_path: projectPath?.trim() || projectPathDraft.value.trim() || undefined,
-          ...((hostId.trim() || 'local') !== 'local'
-            ? { host_id: hostId.trim() }
-            : {}),
-        },
-      )
+      const payload = await socket.sendCommand<CodexThreadCreateResponse>('start_thread', {
+        project_path: projectPath?.trim() || projectPathDraft.value.trim() || undefined,
+        ...((hostId.trim() || 'local') !== 'local' ? { host_id: hostId.trim() } : {}),
+      })
       const threadId = payload.thread_id
       if (payload.state) {
         setThreadPayload({
@@ -691,10 +684,10 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
       return
     }
     await runCommand(async () => {
-      const followup = await socket.sendCommand<CodexQueuedFollowup>(
-        'enqueue_followup',
-        { thread_id: threadId, prompt: message },
-      )
+      const followup = await socket.sendCommand<CodexQueuedFollowup>('enqueue_followup', {
+        thread_id: threadId,
+        prompt: message,
+      })
       const current = activeThreadPayload.value
       if (current) {
         setThreadPayload({
@@ -826,17 +819,13 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
       return
     }
     await runCommand(async () => {
-      const response = await socket.sendCommand<{ goal?: CodexThreadGoal }>(
-        'set_thread_goal',
-        {
-          thread_id: threadId,
-          objective: trimmedObjective,
-          status: 'active',
-          token_budget: tokenBudget ?? undefined,
-        },
-      )
-      const goal = normalizeGoal(response.goal)
-        ?? normalizeGoalResponse(response)
+      const response = await socket.sendCommand<{ goal?: CodexThreadGoal }>('set_thread_goal', {
+        thread_id: threadId,
+        objective: trimmedObjective,
+        status: 'active',
+        token_budget: tokenBudget ?? undefined,
+      })
+      const goal = normalizeGoal(response.goal) ?? normalizeGoalResponse(response)
       if (goal) {
         updateActiveState({
           threadGoal: goal,
@@ -853,24 +842,21 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
       return
     }
     await runCommand(async () => {
-      const response = await socket.sendCommand<{ goal?: CodexThreadGoal }>(
-        'set_thread_goal',
-        {
-          thread_id: threadId,
-          status,
-        },
-      )
-      const goal = normalizeGoal(response.goal)
-        ?? normalizeGoalResponse(response)
+      const response = await socket.sendCommand<{ goal?: CodexThreadGoal }>('set_thread_goal', {
+        thread_id: threadId,
+        status,
+      })
+      const goal = normalizeGoal(response.goal) ?? normalizeGoalResponse(response)
       if (goal) {
         updateActiveState({
           threadGoal: goal,
           completedThreadGoal:
             goal.status === 'complete' ? goal : activeThreadState.value?.completedThreadGoal,
-          threadGoalResumeConfirmation:
-            ['paused', 'blocked', 'usageLimited'].includes(String(goal.status))
-              ? activeThreadState.value?.threadGoalResumeConfirmation ?? null
-              : null,
+          threadGoalResumeConfirmation: ['paused', 'blocked', 'usageLimited'].includes(
+            String(goal.status),
+          )
+            ? (activeThreadState.value?.threadGoalResumeConfirmation ?? null)
+            : null,
         })
       }
       successMessage.value = goalStatusSuccessMessage(status)
@@ -980,9 +966,7 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
       return
     }
     forkingThreadId.value = normalizedThreadId
-    const sourceThread = flatThreads.value.find(
-      (thread) => thread.thread_id === normalizedThreadId,
-    )
+    const sourceThread = flatThreads.value.find((thread) => thread.thread_id === normalizedThreadId)
     const sourceHostId = sourceThread
       ? threadHostId(sourceThread)
       : normalizedThreadId === activeThreadId.value
@@ -993,9 +977,7 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     try {
       const payload = await socket.sendCommand<CodexThreadForkResponse>('fork_thread', {
         thread_id: normalizedThreadId,
-        ...(sourceHostId !== 'local'
-          ? { host_id: sourceHostId }
-          : {}),
+        ...(sourceHostId !== 'local' ? { host_id: sourceHostId } : {}),
       })
       const forkedThreadId = payload.thread_id.trim()
       if (!forkedThreadId) {
@@ -1056,17 +1038,14 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     return await selectThread(normalizedThreadId)
   }
 
-  async function submitUserInputResponse(
-    requestId: string,
-    response: JsonRecord,
-  ) {
+  async function submitUserInputResponse(requestId: string, response: JsonRecord) {
     const threadId = activeThreadId.value
     if (!threadId || !requestId) {
       return
     }
     const state = activeThreadState.value
     const request = Array.isArray(state?.requests)
-      ? state.requests.find((request) => request.id === requestId) ?? null
+      ? (state.requests.find((request) => request.id === requestId) ?? null)
       : null
     if (isPendingPlanImplementationRequest(request)) {
       await submitPlanImplementationRequest(request, response)

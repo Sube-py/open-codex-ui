@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass
+import json
 import logging
 import os
 from pathlib import Path
@@ -45,6 +46,8 @@ from yier_web.codex.session_events import (
 )
 from yier_web.event_stream import EventStreamBroker
 from yier_web.schemas import (
+    CodexFilesystemEntry,
+    CodexFilesystemResponse,
     CodexNativeSessionSummary,
     CodexProjectGroup,
     CodexRemoteConnection,
@@ -145,6 +148,8 @@ def _thread_summary(
 ) -> CodexNativeSessionSummary:
     cwd = thread.cwd.root
     project, project_path = _project_from_cwd(thread.cwd)
+    if host_id == "local":
+        project_path = str(Path(project_path).resolve())
     name = _compact_text(thread.name)
     preview = _compact_text(thread.preview, limit=120)
     title = name or preview or thread.id
@@ -160,6 +165,7 @@ def _thread_summary(
         project=project,
         project_path=project_path,
         source=_thread_source(thread.source),
+        model_provider=thread.model_provider,
     )
 
 
@@ -210,13 +216,16 @@ class CodexIpcManager:
         settings = self.config_service.load_web_settings().codex
         host_ids = [
             "local",
-            *(self._host_id_for_connection(connection.id) for connection in settings.remote_connections),
+            *(
+                self._host_id_for_connection(connection.id)
+                for connection in settings.remote_connections
+            ),
         ]
         results = await asyncio.gather(
             *(self._list_workspace_host(host_id) for host_id in host_ids),
             return_exceptions=True,
         )
-        project_groups: list[CodexProjectGroup] = []
+        summaries: list[CodexNativeSessionSummary] = []
         for host_id, result in zip(host_ids, results, strict=True):
             connection_id = self._connection_id_from_host(host_id)
             if isinstance(result, BaseException):
@@ -236,20 +245,9 @@ class CodexIpcManager:
                     "connected",
                     "Connected",
                 )
-            host_workspace = self._workspace_from_threads(result, host_id=host_id)
-            project_groups.extend(host_workspace.projects)
+            summaries.extend(self._summaries_from_threads(result, host_id=host_id))
 
-        project_groups.sort(
-            key=lambda group: (
-                _summary_used_at(group.sessions[0]) if group.sessions else 0.0,
-                group.project.lower(),
-            ),
-            reverse=True,
-        )
-        workspace = CodexWorkspaceResponse(
-            projects=project_groups,
-            paired_editors=[],
-        )
+        workspace = self._workspace_from_summaries(summaries, settings=settings)
         remote = self.remote_connections()
         workspace.remote_connections = remote.connections
         workspace.active_remote_connection_id = remote.active_connection_id
@@ -426,13 +424,119 @@ class CodexIpcManager:
 
     async def list_threads(self, host_id: str = "local") -> ThreadListResponse:
         session = await self._ensure_workspace_session(host_id)
-        return await session.list_threads(
-            {
+        threads: list[Thread] = []
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        while True:
+            params: JsonDict = {
                 "archived": False,
                 "limit": 100,
                 "sort_key": "updated_at",
                 "sort_direction": "desc",
             }
+            if cursor:
+                params["cursor"] = cursor
+            response = await session.list_threads(params)
+            threads.extend(response.data)
+            next_cursor = response.next_cursor
+            if not next_cursor or next_cursor in seen_cursors:
+                break
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        return ThreadListResponse(data=threads)
+
+    async def list_filesystem(
+        self,
+        *,
+        host_id: str,
+        path: str | None = None,
+    ) -> CodexFilesystemResponse:
+        resolved_host_id = self._resolve_host_id(host_id)
+        connection = self._connection_for_host(resolved_host_id)
+        if connection is None:
+            raise ValueError("A remote host is required.")
+
+        requested_path = path or connection.remote_path or "~"
+        script = """
+import json
+import os
+import pathlib
+import sys
+
+directory = pathlib.Path(sys.argv[1]).expanduser().resolve()
+if not directory.exists():
+    raise FileNotFoundError(f"Path not found: {directory}")
+if not directory.is_dir():
+    raise NotADirectoryError(f"Path is not a directory: {directory}")
+
+entries = []
+for child in directory.iterdir():
+    try:
+        kind = "directory" if child.is_dir() else "file" if child.is_file() else "other"
+        readable = os.access(child, os.R_OK)
+    except OSError:
+        kind = "other"
+        readable = False
+    entries.append({
+        "name": child.name,
+        "path": str(child),
+        "kind": kind,
+        "extension": child.suffix.lower() if kind == "file" else "",
+        "readable": readable,
+    })
+entries.sort(key=lambda item: (
+    0 if item["kind"] == "directory" else 1 if item["kind"] == "file" else 2,
+    item["name"].casefold(),
+))
+print(json.dumps({
+    "path": str(directory),
+    "parent_path": None if directory.parent == directory else str(directory.parent),
+    "entries": entries,
+}))
+""".strip()
+        command = f"python3 -c {shlex.quote(script)} {shlex.quote(requested_path)}"
+        process = await asyncio.create_subprocess_exec(
+            *self._ssh_base_args(connection, verbose=False),
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=12)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+            raise RuntimeError("Timed out while browsing the remote host.") from None
+        if process.returncode != 0:
+            detail = _compact_text(stderr.decode(errors="replace"), limit=240)
+            raise RuntimeError(detail or "Unable to browse the remote host.")
+        try:
+            payload = json.loads(stdout.decode())
+            entries = [
+                CodexFilesystemEntry.model_validate(item) for item in payload["entries"]
+            ]
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise RuntimeError(
+                "The remote host returned an invalid directory listing."
+            ) from exc
+        return CodexFilesystemResponse(
+            path=str(payload.get("path") or requested_path),
+            parent_path=payload.get("parent_path"),
+            roots=[
+                CodexFilesystemEntry(
+                    name="/",
+                    path="/",
+                    kind="directory",
+                    readable=True,
+                )
+            ],
+            entries=entries,
         )
 
     async def list_skills(
@@ -488,6 +592,14 @@ class CodexIpcManager:
             if not thread_id:
                 raise RuntimeError("Codex did not return a thread id.")
             await self._register_session(thread_id, session)
+            try:
+                self.config_service.assign_codex_thread_project(
+                    thread_id,
+                    host_id=resolved_host_id,
+                    cwd=str(params.get("cwd") or ""),
+                )
+            except OSError as exc:
+                logger.warning("Unable to persist project assignment: %s", exc)
         except Exception:
             await session.stop()
             raise
@@ -803,6 +915,13 @@ class CodexIpcManager:
             if not forked_thread_id:
                 raise RuntimeError("Codex did not return a forked thread id.")
             managed = await self._register_session(forked_thread_id, session)
+            try:
+                self.config_service.copy_codex_thread_assignment(
+                    source_thread_id,
+                    forked_thread_id,
+                )
+            except OSError as exc:
+                logger.warning("Unable to persist fork project assignment: %s", exc)
         except Exception:
             await session.stop()
             raise
@@ -1212,12 +1331,15 @@ class CodexIpcManager:
         resolved_host_id = self._resolve_host_id(host_id, settings=settings)
         codex_home = _codex_home(self.config_service.home_dir)
         codex_config = _load_codex_home_config(codex_home)
+        is_remote = resolved_host_id != "local"
         return CodexIpcConfig(
             thread_id=thread_id,
             host_id=resolved_host_id,
             client_type="yier",
-            model=self._thread_model(settings, codex_config),
-            reasoning_effort=self._reasoning_effort(settings, codex_config),
+            model=None if is_remote else self._thread_model(settings, codex_config),
+            reasoning_effort=(
+                None if is_remote else self._reasoning_effort(settings, codex_config)
+            ),
             app_server_config=self._app_server_config(
                 settings,
                 host_id=resolved_host_id,
@@ -1227,6 +1349,7 @@ class CodexIpcManager:
                 settings,
                 codex_config,
                 cwd=self._default_thread_cwd(settings, resolved_host_id),
+                include_model=not is_remote,
             ),
         )
 
@@ -1296,9 +1419,7 @@ class CodexIpcManager:
         connection_id = self._connection_id_from_host(host_id)
         if not connection_id:
             return None
-        resolved_settings = (
-            settings or self.config_service.load_web_settings().codex
-        )
+        resolved_settings = settings or self.config_service.load_web_settings().codex
         for connection in resolved_settings.remote_connections:
             if connection.id == connection_id:
                 return connection
@@ -1384,18 +1505,24 @@ class CodexIpcManager:
         connection: CodexRemoteConnection,
         *,
         use_tty: bool = False,
+        verbose: bool = True,
     ) -> tuple[str, ...]:
         args = [
             "ssh",
             "-tt" if use_tty else "-T",
-            "-v",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ServerAliveInterval=15",
-            "-o",
-            "ServerAliveCountMax=12",
         ]
+        if verbose:
+            args.append("-v")
+        args.extend(
+            [
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ServerAliveInterval=15",
+                "-o",
+                "ServerAliveCountMax=12",
+            ]
+        )
         if connection.ssh_alias:
             args.append(connection.ssh_alias)
             return tuple(args)
@@ -1449,11 +1576,10 @@ class CodexIpcManager:
         codex_config: JsonDict,
         *,
         cwd: str,
+        include_model: bool = True,
     ) -> JsonDict:
         params: JsonDict = {
             "cwd": cwd,
-            "model": self._thread_model(settings, codex_config),
-            "model_provider": _config_string(codex_config, "model_provider"),
             "approval_policy": self._approval_policy(settings, codex_config),
             "approvals_reviewer": self._approvals_reviewer(settings, codex_config),
             "sandbox": self._sandbox_mode(settings, codex_config),
@@ -1465,9 +1591,12 @@ class CodexIpcManager:
                 "developer_instructions",
             ),
         }
-        reasoning_effort = self._reasoning_effort(settings, codex_config)
-        if reasoning_effort is not None:
-            params["config"] = {"model_reasoning_effort": reasoning_effort}
+        if include_model:
+            params["model"] = self._thread_model(settings, codex_config)
+            params["model_provider"] = _config_string(codex_config, "model_provider")
+            reasoning_effort = self._reasoning_effort(settings, codex_config)
+            if reasoning_effort is not None:
+                params["config"] = {"model_reasoning_effort": reasoning_effort}
         ephemeral = codex_config.get("ephemeral")
         if isinstance(ephemeral, bool):
             params["ephemeral"] = ephemeral
@@ -1535,27 +1664,58 @@ class CodexIpcManager:
             value = settings.reasoning_effort.strip()
         return value if value and value != "none" else None
 
-    def _workspace_from_threads(
+    def _summaries_from_threads(
         self,
         response: ThreadListResponse,
         *,
         host_id: str,
-    ) -> CodexWorkspaceResponse:
-        threads = response.data
-
-        projects: dict[str, list[CodexNativeSessionSummary]] = {}
-        for thread in threads:
+    ) -> list[CodexNativeSessionSummary]:
+        summaries: list[CodexNativeSessionSummary] = []
+        for thread in response.data:
             if thread.ephemeral:
                 continue
             summary = _thread_summary(thread, host_id=host_id)
             self._thread_hosts[summary.thread_id] = host_id
-            project_key = (
-                f"{summary.host_id}::{summary.project_path or summary.project}"
-            )
-            projects.setdefault(project_key, []).append(summary)
+            summaries.append(summary)
+        return summaries
+
+    def _workspace_from_summaries(
+        self,
+        summaries: list[CodexNativeSessionSummary],
+        *,
+        settings: StoredCodexSettings,
+    ) -> CodexWorkspaceResponse:
+        sessions_by_project: dict[str, list[CodexNativeSessionSummary]] = {
+            project.id: [] for project in settings.projects
+        }
+        recent_threads: list[CodexNativeSessionSummary] = []
+        projects_by_id = {project.id: project for project in settings.projects}
+        projectless_thread_ids = set(settings.projectless_thread_ids)
+        for summary in summaries:
+            assignment = settings.thread_project_assignments.get(summary.thread_id)
+            project = projects_by_id.get(assignment.project_id) if assignment else None
+            if project is not None and project.host_id != summary.host_id:
+                project = None
+            if project is None and summary.thread_id in projectless_thread_ids:
+                recent_threads.append(summary)
+                continue
+            if project is None:
+                project = next(
+                    (
+                        candidate
+                        for candidate in settings.projects
+                        if candidate.host_id == summary.host_id
+                        and summary.project_path in candidate.root_paths
+                    ),
+                    None,
+                )
+            if project is None:
+                continue
+            sessions_by_project[project.id].append(summary)
 
         project_groups: list[CodexProjectGroup] = []
-        for _, sessions in projects.items():
+        for project in settings.projects:
+            sessions = sessions_by_project[project.id]
             sessions.sort(
                 key=lambda item: (
                     _summary_used_at(item),
@@ -1566,9 +1726,12 @@ class CodexIpcManager:
             )
             project_groups.append(
                 CodexProjectGroup(
-                    project=sessions[0].project if sessions else "Untitled project",
-                    project_path=sessions[0].project_path if sessions else "",
-                    host_id=sessions[0].host_id if sessions else "local",
+                    id=project.id,
+                    project=project.name or "Untitled project",
+                    project_path=project.root_paths[0],
+                    host_id=project.host_id,
+                    kind=project.kind,
+                    root_paths=project.root_paths,
                     session_count=len(sessions),
                     sessions=sessions,
                 )
@@ -1576,12 +1739,23 @@ class CodexIpcManager:
 
         project_groups.sort(
             key=lambda group: (
-                _summary_used_at(group.sessions[0]) if group.sessions else 0.0,
+                -(_summary_used_at(group.sessions[0]) if group.sessions else 0.0),
                 group.project.lower(),
+            ),
+        )
+        recent_threads.sort(
+            key=lambda item: (
+                _summary_used_at(item),
+                item.started_at,
+                item.thread_id,
             ),
             reverse=True,
         )
-        return CodexWorkspaceResponse(projects=project_groups, paired_editors=[])
+        return CodexWorkspaceResponse(
+            projects=project_groups,
+            recent_threads=recent_threads,
+            paired_editors=[],
+        )
 
     def _notify(self, message: str) -> None:
         logger.info("codex-ipc: %s", message)

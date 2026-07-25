@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -25,7 +26,7 @@ from yier_web.config import AppConfigService
 from yier_web.event_stream import EventStreamBroker
 from yier_web.frontend import FrontendService
 from yier_web.routes.codex import CodexController
-from yier_web.schemas import CodexRemoteConnectionPayload
+from yier_web.schemas import CodexProjectPayload, CodexRemoteConnectionPayload
 
 
 def fake_thread(
@@ -99,6 +100,7 @@ class FakeCodexIpcSession:
         self.lifecycle_calls: list[str] = []
         self.list_threads_calls: list[dict[str, Any] | None] = []
         self.list_threads_error: Exception | None = None
+        self.list_threads_responses: list[ThreadListResponse] = []
         self.skills_list_calls: list[dict[str, Any] | None] = []
         self._state_queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         self.list_threads_response = ThreadListResponse(
@@ -200,6 +202,8 @@ class FakeCodexIpcSession:
         self.list_threads_calls.append(params)
         if self.list_threads_error is not None:
             raise self.list_threads_error
+        if self.list_threads_responses:
+            return self.list_threads_responses.pop(0)
         return self.list_threads_response
 
     async def _ensure_codex(self) -> SimpleNamespace:
@@ -543,6 +547,16 @@ def test_codex_manager_keeps_separate_sessions_alive(tmp_path: Path) -> None:
             project_root=tmp_path / "project",
             home_dir=tmp_path / "home",
         )
+        config_service.assign_codex_thread_project(
+            "thread-a",
+            host_id="local",
+            cwd="/tmp/project-a",
+        )
+        config_service.assign_codex_thread_project(
+            "thread-b",
+            host_id="local",
+            cwd="/tmp/project-b",
+        )
         factory = FakeSessionFactory()
         manager = CodexIpcManager(
             config_service=config_service,
@@ -552,7 +566,11 @@ def test_codex_manager_keeps_separate_sessions_alive(tmp_path: Path) -> None:
 
         await manager.start()
         workspace = await manager.workspace()
-        assert len(workspace.projects) == 2
+        assert workspace.projects == []
+        assert len(workspace.recent_threads) == 2
+        assert {thread.model_provider for thread in workspace.recent_threads} == {
+            "openai"
+        }
         assert factory.workspace_session().list_threads_calls[-1] == {
             "archived": False,
             "limit": 100,
@@ -639,6 +657,54 @@ def test_codex_manager_keeps_separate_sessions_alive(tmp_path: Path) -> None:
         assert factory.by_thread_id("thread-created").stopped is True
         assert factory.by_thread_id("thread-plan").stopped is True
         assert factory.workspace_session().stopped is True
+
+    asyncio.run(scenario())
+
+
+def test_codex_manager_paginates_the_complete_thread_list(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        factory = FakeSessionFactory()
+        manager = CodexIpcManager(
+            config_service=AppConfigService(
+                project_root=tmp_path / "project",
+                home_dir=tmp_path / "home",
+            ),
+            event_broker=EventStreamBroker(),
+            session_factory=factory,
+        )
+        session = await manager._ensure_workspace_session("local")
+        session.list_threads_responses = [
+            ThreadListResponse(
+                data=[fake_thread("thread-page-1", "/tmp/page-1")],
+                next_cursor="cursor-2",
+            ),
+            ThreadListResponse(
+                data=[fake_thread("thread-page-2", "/tmp/page-2")],
+            ),
+        ]
+
+        response = await manager.list_threads()
+
+        assert [thread.id for thread in response.data] == [
+            "thread-page-1",
+            "thread-page-2",
+        ]
+        assert session.list_threads_calls == [
+            {
+                "archived": False,
+                "limit": 100,
+                "sort_key": "updated_at",
+                "sort_direction": "desc",
+            },
+            {
+                "archived": False,
+                "limit": 100,
+                "sort_key": "updated_at",
+                "sort_direction": "desc",
+                "cursor": "cursor-2",
+            },
+        ]
+        await manager.stop()
 
     asyncio.run(scenario())
 
@@ -960,30 +1026,31 @@ def test_codex_manager_updates_cached_mode_for_future_snapshots(tmp_path: Path) 
 
 def test_codex_controller_http_and_websocket_contract(tmp_path: Path) -> None:
     factory = FakeSessionFactory()
-    _, client = build_app(tmp_path, factory)
+    config_service, client = build_app(tmp_path, factory)
+    config_service.assign_codex_thread_project(
+        "thread-a",
+        host_id="local",
+        cwd="/tmp/project-a",
+    )
+    config_service.assign_codex_thread_project(
+        "thread-b",
+        host_id="local",
+        cwd="/tmp/project-b",
+    )
 
     with client:
         workspace_response = client.get("/api/codex/workspace")
         assert workspace_response.status_code == 200
-        assert len(workspace_response.json()["projects"]) == 2
-        sessions = [
-            session
-            for project in workspace_response.json()["projects"]
-            for session in project["sessions"]
-        ]
+        assert workspace_response.json()["projects"] == []
+        sessions = workspace_response.json()["recent_threads"]
         thread_a = next(
             session for session in sessions if session["thread_id"] == "thread-a"
         )
-        project_a = next(
-            project
-            for project in workspace_response.json()["projects"]
-            if project["project_path"] == "/tmp/project-a"
-        )
-        assert project_a["host_id"] == "local"
         assert thread_a["host_id"] == "local"
         assert thread_a["cwd"] == "/tmp/project-a"
         assert thread_a["status"] == "idle"
         assert thread_a["source"] == "appServer"
+        assert thread_a["model_provider"] == "openai"
         assert workspace_response.json()["remote_connections"] == []
         assert workspace_response.json()["active_remote_connection_id"] == ""
 
@@ -1501,6 +1568,123 @@ def test_codex_controller_http_and_websocket_contract(tmp_path: Path) -> None:
             assert error_message["code"] == "bad_request"
 
 
+def test_codex_projects_only_keep_explicit_projectless_threads_in_chats(
+    tmp_path: Path,
+) -> None:
+    factory = FakeSessionFactory()
+    config_service, client = build_app(tmp_path, factory)
+    config_service.assign_codex_thread_project(
+        "thread-b",
+        host_id="local",
+        cwd="/tmp/project-b",
+    )
+
+    with client:
+        initial = client.get("/api/codex/workspace")
+        assert initial.status_code == 200
+        assert initial.json()["projects"] == []
+        assert [thread["thread_id"] for thread in initial.json()["recent_threads"]] == [
+            "thread-b"
+        ]
+
+        created = client.post(
+            "/api/codex/projects",
+            json={
+                "name": "Alpha",
+                "kind": "local",
+                "host_id": "local",
+                "project_path": "/tmp/project-a",
+            },
+        )
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+
+        empty = client.post(
+            "/api/codex/projects",
+            json={
+                "name": "Empty",
+                "kind": "local",
+                "host_id": "local",
+                "project_path": "/tmp/empty",
+            },
+        )
+        assert empty.status_code == 201
+
+        workspace = client.get("/api/codex/workspace").json()
+        assert [project["project"] for project in workspace["projects"]] == [
+            "Alpha",
+            "Empty",
+        ]
+        alpha = workspace["projects"][0]
+        assert [thread["thread_id"] for thread in alpha["sessions"]] == ["thread-a"]
+        assert workspace["projects"][1]["sessions"] == []
+        assert [thread["thread_id"] for thread in workspace["recent_threads"]] == [
+            "thread-b"
+        ]
+
+        duplicate = client.post(
+            "/api/codex/projects",
+            json={
+                "name": "Duplicate",
+                "kind": "local",
+                "host_id": "local",
+                "project_path": "/tmp/project-a",
+            },
+        )
+        assert duplicate.status_code == 400
+
+        deleted = client.post(f"/api/codex/projects/{project_id}/delete")
+        assert deleted.status_code == 201
+        after_delete = client.get("/api/codex/workspace").json()
+        assert {project["project"] for project in after_delete["projects"]} == {"Empty"}
+        assert [thread["thread_id"] for thread in after_delete["recent_threads"]] == [
+            "thread-b"
+        ]
+
+
+def test_codex_settings_import_and_extend_desktop_projectless_threads(
+    tmp_path: Path,
+) -> None:
+    home_dir = tmp_path / "home"
+    state_path = home_dir / ".codex" / ".codex-global-state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "projectless-thread-ids": [
+                    "desktop-projectless",
+                    "desktop-projectless",
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_service = AppConfigService(
+        project_root=tmp_path / "project",
+        home_dir=home_dir,
+    )
+
+    assert config_service.load_web_settings().codex.projectless_thread_ids == [
+        "desktop-projectless"
+    ]
+
+    config_service.assign_codex_thread_project(
+        "yier-projectless",
+        host_id="local",
+        cwd="/tmp/not-added",
+    )
+    config_service.copy_codex_thread_assignment(
+        "yier-projectless",
+        "forked-projectless",
+    )
+
+    assert set(config_service.load_web_settings().codex.projectless_thread_ids) == {
+        "desktop-projectless",
+        "forked-projectless",
+        "yier-projectless",
+    }
+
+
 def test_codex_remote_connection_configures_ssh_app_server(tmp_path: Path) -> None:
     factory = FakeSessionFactory()
     config_service, client = build_app(tmp_path, factory)
@@ -1516,6 +1700,24 @@ def test_codex_remote_connection_configures_ssh_app_server(tmp_path: Path) -> No
             auto_connect=True,
         )
     )
+    config_service.save_codex_project(
+        CodexProjectPayload(
+            name="Remote project",
+            kind="remote",
+            host_id=f"ssh:{connection.id}",
+            project_path="/srv/project",
+        )
+    )
+    config_service.assign_codex_thread_project(
+        "thread-a",
+        host_id="local",
+        cwd="/tmp/project-a",
+    )
+    config_service.assign_codex_thread_project(
+        "thread-b",
+        host_id="local",
+        cwd="/tmp/project-b",
+    )
 
     with client:
         workspace_response = client.get("/api/codex/workspace")
@@ -1526,7 +1728,10 @@ def test_codex_remote_connection_configures_ssh_app_server(tmp_path: Path) -> No
     assert payload["remote_connections"][0]["display_name"] == "Build host"
     assert payload["remote_connection_statuses"][connection.id]["status"] == "connected"
 
-    assert {project["host_id"] for project in payload["projects"]} == {
+    assert len(payload["projects"]) == 1
+    assert payload["projects"][0]["host_id"] == f"ssh:{connection.id}"
+    assert payload["projects"][0]["sessions"] == []
+    assert {thread["host_id"] for thread in payload["recent_threads"]} == {
         "local",
         f"ssh:{connection.id}",
     }
@@ -1539,6 +1744,10 @@ def test_codex_remote_connection_configures_ssh_app_server(tmp_path: Path) -> No
     assert ssh_config.port == 2222
     assert ssh_config.identity == "~/.ssh/build"
     assert app_server_config.ssh_websocket.remote_cwd == "/srv/project"
+    assert session.config.model is None
+    assert session.config.reasoning_effort is None
+    assert "model" not in session.config.default_thread_params
+    assert "model_provider" not in session.config.default_thread_params
 
     create_response = client.post(
         "/api/codex/threads",
@@ -1693,6 +1902,16 @@ def test_codex_workspace_isolates_ssh_connection_failures(
                 auto_connect=True,
             )
         )
+        config_service.assign_codex_thread_project(
+            "thread-a",
+            host_id="local",
+            cwd="/tmp/project-a",
+        )
+        config_service.assign_codex_thread_project(
+            "thread-b",
+            host_id="local",
+            cwd="/tmp/project-b",
+        )
         factory = UnreachableRemoteSessionFactory()
         manager = CodexIpcManager(
             config_service=config_service,
@@ -1702,13 +1921,17 @@ def test_codex_workspace_isolates_ssh_connection_failures(
 
         workspace = await manager.workspace()
 
-        assert workspace.projects
+        assert workspace.projects == []
+        assert workspace.recent_threads
         assert workspace.active_remote_connection_id == ""
-        assert config_service.load_web_settings().codex.active_remote_connection_id == ""
+        assert (
+            config_service.load_web_settings().codex.active_remote_connection_id == ""
+        )
         assert workspace.remote_connection_statuses[connection.id].status == "error"
-        assert "Connection refused" in workspace.remote_connection_statuses[
-            connection.id
-        ].detail
+        assert (
+            "Connection refused"
+            in workspace.remote_connection_statuses[connection.id].detail
+        )
         remote_session = factory.workspace_session(f"ssh:{connection.id}")
         local_session = factory.workspace_session()
         assert remote_session.stopped is True
@@ -1818,9 +2041,7 @@ def test_codex_remote_connection_api_key_login_uses_remote_app_server(
             async def account_login_start(self, params: dict[str, Any]) -> None:
                 calls.append(("login", params))
 
-            async def account_read(
-                self, params: dict[str, Any]
-            ) -> SimpleNamespace:
+            async def account_read(self, params: dict[str, Any]) -> SimpleNamespace:
                 calls.append(("read", params))
                 return SimpleNamespace(
                     account=SimpleNamespace(root=SimpleNamespace(type="apiKey"))

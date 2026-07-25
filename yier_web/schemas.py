@@ -23,6 +23,7 @@ CodexPersonality = Literal["none", "friendly", "pragmatic"]
 CodexReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
 CodexServiceTier = Literal["", "fast", "flex"]
 CodexApprovalsReviewer = Literal["user", "guardian_subagent"]
+CodexProjectKind = Literal["local", "remote"]
 
 
 class StoredLLMSettings(BaseModel):
@@ -75,11 +76,23 @@ class StoredCodexSettings(BaseModel):
     service_tier: CodexServiceTier = ""
     active_remote_connection_id: str = ""
     remote_connections: list["CodexRemoteConnection"] = Field(default_factory=list)
+    projects: list["CodexProjectDefinition"] = Field(default_factory=list)
+    thread_project_assignments: dict[str, "CodexThreadProjectAssignment"] = Field(
+        default_factory=dict
+    )
+    projectless_thread_ids: list[str] = Field(default_factory=list)
 
     @field_validator("launcher_command", "model", "active_remote_connection_id")
     @classmethod
     def strip_string_fields(cls, value: str) -> str:
         return value.strip()
+
+    @field_validator("projectless_thread_ids")
+    @classmethod
+    def normalize_projectless_thread_ids(cls, value: list[str]) -> list[str]:
+        return list(
+            dict.fromkeys(thread_id.strip() for thread_id in value if thread_id.strip())
+        )
 
 
 class CodexRemoteConnection(BaseModel):
@@ -147,6 +160,50 @@ class CodexRemoteConnection(BaseModel):
             return self.ssh_host, self.ssh_username
         ssh_username, ssh_host = self.ssh_host.split("@", maxsplit=1)
         return ssh_host, ssh_username
+
+
+class CodexProjectDefinition(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    name: str = ""
+    kind: CodexProjectKind = "local"
+    host_id: str = "local"
+    root_paths: list[str] = Field(default_factory=list)
+    created_at: float = 0.0
+    updated_at: float = 0.0
+
+    @field_validator("id", "name", "host_id")
+    @classmethod
+    def strip_project_strings(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("root_paths")
+    @classmethod
+    def normalize_project_roots(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(path.strip() for path in value if path.strip()))
+
+
+class CodexProjectPayload(BaseModel):
+    name: str = ""
+    kind: CodexProjectKind = "local"
+    host_id: str = "local"
+    project_path: str
+
+    @field_validator("name", "host_id", "project_path")
+    @classmethod
+    def strip_project_payload_strings(cls, value: str) -> str:
+        return value.strip()
+
+
+class CodexThreadProjectAssignment(BaseModel):
+    project_id: str
+    project_kind: CodexProjectKind
+    host_id: str = "local"
+    cwd: str
+
+    @field_validator("project_id", "host_id", "cwd")
+    @classmethod
+    def strip_assignment_strings(cls, value: str) -> str:
+        return value.strip()
 
 
 class CodexRemoteConnectionPayload(BaseModel):
@@ -243,6 +300,7 @@ class CodexConfigPayload(BaseModel):
     service_tier: CodexServiceTier = ""
     active_remote_connection_id: str = ""
     remote_connections: list[CodexRemoteConnection] = Field(default_factory=list)
+    projects: list[CodexProjectDefinition] = Field(default_factory=list)
 
 
 class LLMConfigPayload(BaseModel):
@@ -379,6 +437,7 @@ class CodexNativeSessionSummary(BaseModel):
     project: str
     project_path: str
     source: str = "active"
+    model_provider: str = ""
 
 
 class CodexPairingExtensionSummary(BaseModel):
@@ -398,15 +457,19 @@ class CodexPairingExtensionSummary(BaseModel):
 
 
 class CodexProjectGroup(BaseModel):
+    id: str
     project: str
     project_path: str
     host_id: str = "local"
+    kind: CodexProjectKind = "local"
+    root_paths: list[str] = Field(default_factory=list)
     session_count: int
     sessions: list[CodexNativeSessionSummary] = Field(default_factory=list)
 
 
 class CodexWorkspaceResponse(BaseModel):
     projects: list[CodexProjectGroup] = Field(default_factory=list)
+    recent_threads: list[CodexNativeSessionSummary] = Field(default_factory=list)
     paired_editors: list[CodexPairingExtensionSummary] = Field(default_factory=list)
     remote_connections: list[CodexRemoteConnection] = Field(default_factory=list)
     active_remote_connection_id: str = ""

@@ -58,13 +58,14 @@ function workspace(): CodexWorkspaceResponse {
     ],
     paired_editors: [],
     remote_connections: [],
+    recent_threads: [],
     active_remote_connection_id: '',
     remote_connection_statuses: {},
   }
 }
 
 const MenuStub = defineComponent({
-  name: 'Menu',
+  name: 'CodexMenuStub',
   props: {
     model: {
       type: Array,
@@ -101,19 +102,23 @@ const MenuStub = defineComponent({
 })
 
 function mountSidebar(props: Partial<InstanceType<typeof CodexSidebar>['$props']> = {}) {
-  let wrapper: ReturnType<typeof mount>
-  wrapper = mount(CodexSidebar, {
+  const wrapper = mount(CodexSidebar, {
     props: {
       projectPath: '',
       workspace: workspace(),
       activeThreadId: '',
       ...props,
-      'onUpdate:projectPath': (value: string) =>
-        wrapper.setProps({ projectPath: value }),
+      'onUpdate:projectPath': (value: string) => wrapper.setProps({ projectPath: value }),
     },
     global: {
       plugins: [PrimeVue],
       stubs: {
+        Dialog: {
+          props: ['visible', 'header'],
+          emits: ['update:visible'],
+          template:
+            '<section v-if="visible" data-dialog-stub><h2>{{ header }}</h2><slot /><footer><slot name="footer" /></footer></section>',
+        },
         CodexHostPathPicker: {
           props: [
             'visible',
@@ -122,10 +127,11 @@ function mountSidebar(props: Partial<InstanceType<typeof CodexSidebar>['$props']
             'title',
             'allowFiles',
             'allowCurrentFolder',
+            'hostId',
           ],
           emits: ['update:visible', 'select'],
           template:
-            '<div data-codex-host-path-picker-stub :data-selected-path="selectedPath"><button v-if="title" data-codex-identity-picker-select @click="$emit(\'select\', \'/home/test/.ssh/id_ed25519\')">Select identity</button><button v-else data-codex-picker-select @click="$emit(\'select\', \'/tmp/selected\')">Select</button></div>',
+            "<div data-codex-host-path-picker-stub :data-selected-path=\"selectedPath\" :data-host-id=\"hostId\"><button v-if=\"allowFiles\" data-codex-identity-picker-select @click=\"$emit('select', '/home/test/.ssh/id_ed25519')\">Select identity</button><button v-else data-codex-picker-select @click=\"$emit('select', hostId && hostId !== 'local' ? '/srv/selected' : '/tmp/selected')\">Select</button></div>",
         },
         Menu: MenuStub,
       },
@@ -156,9 +162,7 @@ describe('CodexSidebar', () => {
     expect(projectButtons[1]?.text()).toContain('beta')
 
     const text = wrapper.text()
-    expect(text.indexOf('thread-alpha-new')).toBeLessThan(
-      text.indexOf('thread-alpha-old'),
-    )
+    expect(text.indexOf('thread-alpha-new')).toBeLessThan(text.indexOf('thread-alpha-old'))
   })
 
   it('expands the latest project and the active thread project by default', () => {
@@ -178,12 +182,15 @@ describe('CodexSidebar', () => {
     await alphaButton.trigger('click')
 
     expect(alphaButton.attributes('aria-expanded')).toBe('false')
-    expect(JSON.parse(localStorage.getItem('yier.codex.sidebar.expanded-projects') ?? '{}')).toEqual({
+    expect(
+      JSON.parse(localStorage.getItem('yier.codex.sidebar.expanded-projects') ?? '{}'),
+    ).toEqual({
       'local::/tmp/alpha': false,
     })
   })
 
-  it('starts a thread immediately after selecting a host folder', async () => {
+  it('adds a local project without starting a thread', async () => {
+    apiPostMock.mockResolvedValueOnce({ id: 'project-local' })
     const wrapper = mountSidebar()
 
     expect(wrapper.find('input[placeholder="Project path"]').exists()).toBe(false)
@@ -191,9 +198,19 @@ describe('CodexSidebar', () => {
     expect(wrapper.find('[data-codex-start-thread]').exists()).toBe(false)
     expect(wrapper.find('[aria-label="Refresh Codex threads"]').exists()).toBe(false)
 
+    await wrapper.get('[data-codex-add-project]').trigger('click')
+    await wrapper.get('[data-codex-project-browse]').trigger('click')
     await wrapper.get('[data-codex-picker-select]').trigger('click')
+    await wrapper.get('[data-codex-project-save]').trigger('click')
 
-    expect(wrapper.emitted('startThread')).toEqual([['/tmp/selected', 'local']])
+    expect(apiPostMock).toHaveBeenCalledWith('/api/codex/projects', {
+      name: '',
+      kind: 'local',
+      host_id: 'local',
+      project_path: '/tmp/selected',
+    })
+    expect(wrapper.emitted('startThread')).toBeUndefined()
+    expect(wrapper.emitted('remoteConnectionChanged')).toHaveLength(1)
   })
 
   it('starts new threads from project row actions', async () => {
@@ -202,6 +219,67 @@ describe('CodexSidebar', () => {
     await wrapper.findAll('[data-codex-project-start-thread]')[0]!.trigger('click')
 
     expect(wrapper.emitted('startThread')).toEqual([['/tmp/alpha', 'local']])
+  })
+
+  it('renders projects before projectless Chats and settings at the sidebar bottom', () => {
+    const wrapper = mountSidebar({
+      workspace: {
+        ...workspace(),
+        recent_threads: [thread('thread-recent', 'other', '/tmp/other', 40)],
+      },
+    })
+
+    const projectButtons = wrapper.findAll('[data-codex-project-toggle]')
+    expect(projectButtons.map((button) => button.text())).toEqual(
+      expect.arrayContaining(['alpha', 'beta', 'Chats']),
+    )
+    expect(projectButtons[0]?.text()).toContain('alpha')
+    expect(projectButtons[1]?.text()).toContain('beta')
+    expect(projectButtons[2]?.text()).toContain('Chats')
+    expect(wrapper.text()).toContain('thread-recent')
+    expect(wrapper.find('[data-codex-add-remote]').exists()).toBe(false)
+    expect(wrapper.get('[data-codex-open-settings]').text()).toContain('Settings')
+  })
+
+  it('limits expanded sections while keeping the active thread visible', async () => {
+    const projectThreads = Array.from({ length: 15 }, (_, index) =>
+      thread(`project-thread-${index + 1}`, 'large', '/tmp/large', 200 - index),
+    )
+    const chatThreads = Array.from({ length: 52 }, (_, index) =>
+      thread(`chat-thread-${index + 1}`, 'other', '/tmp/other', 100 - index),
+    )
+    const wrapper = mountSidebar({
+      activeThreadId: 'project-thread-15',
+      workspace: {
+        projects: [
+          {
+            project: 'large',
+            project_path: '/tmp/large',
+            session_count: projectThreads.length,
+            sessions: projectThreads,
+          },
+        ],
+        paired_editors: [],
+        recent_threads: chatThreads,
+      },
+    })
+
+    const projectSection = wrapper.get('[data-codex-section-key="local::/tmp/large"]')
+    const chatsSection = wrapper.get('[data-codex-section-key="chats"]')
+    expect(projectSection.findAll('[data-codex-thread-row]')).toHaveLength(11)
+    expect(projectSection.text()).toContain('project-thread-15')
+    expect(projectSection.text()).not.toContain('project-thread-11')
+    expect(projectSection.get('[data-codex-show-more-threads]').text()).toContain('Show 4 more')
+    expect(chatsSection.findAll('[data-codex-thread-row]')).toHaveLength(50)
+    expect(chatsSection.get('[data-codex-show-more-threads]').text()).toContain('Show 2 more')
+
+    await projectSection.get('[data-codex-show-more-threads]').trigger('click')
+    await chatsSection.get('[data-codex-show-more-threads]').trigger('click')
+
+    expect(projectSection.findAll('[data-codex-thread-row]')).toHaveLength(15)
+    expect(projectSection.find('[data-codex-show-more-threads]').exists()).toBe(false)
+    expect(chatsSection.findAll('[data-codex-thread-row]')).toHaveLength(52)
+    expect(chatsSection.find('[data-codex-show-more-threads]').exists()).toBe(false)
   })
 
   it('creates and manages SSH remote connections without switching the thread list', async () => {
@@ -244,20 +322,14 @@ describe('CodexSidebar', () => {
       },
     })
 
+    await wrapper.get('[data-codex-open-settings]').trigger('click')
     await wrapper.get('[data-codex-add-remote]').trigger('click')
     await wrapper.get('[data-codex-remote-display-name]').setValue('Build host')
     await wrapper.get('[data-codex-remote-host]').setValue('host')
     await wrapper.get('[data-codex-remote-username]').setValue('user')
     await wrapper.get('[data-codex-remote-port]').setValue('2222')
     await wrapper.get('[data-codex-browse-remote-identity]').trigger('click')
-
-    const identityPicker = wrapper
-      .findAll('[data-codex-host-path-picker-stub]')
-      .find((picker) => picker.find('[data-codex-identity-picker-select]').exists())
-    expect(identityPicker).toBeDefined()
-    expect(identityPicker?.attributes('data-selected-path')).toBe('~/.ssh')
-
-    await identityPicker!.get('[data-codex-identity-picker-select]').trigger('click')
+    await wrapper.get('[data-codex-remote-identity]').setValue('/home/test/.ssh/id_ed25519')
     expect(wrapper.get('[data-codex-remote-identity]').element).toHaveProperty(
       'value',
       '/home/test/.ssh/id_ed25519',
@@ -284,9 +356,7 @@ describe('CodexSidebar', () => {
       {},
     )
 
-    expect(wrapper.get('[data-codex-remote-runtime-status]').text()).toContain(
-      'Connected',
-    )
+    expect(wrapper.get('[data-codex-remote-runtime-status]').text()).toContain('Connected')
 
     await wrapper.get('[data-codex-restart-remote]').trigger('click')
     expect(apiPostMock).toHaveBeenNthCalledWith(
@@ -311,11 +381,7 @@ describe('CodexSidebar', () => {
       { apiKey: 'sk-test' },
     )
 
-    await wrapper.get('[data-codex-start-remote-thread]').trigger('click')
-    expect(wrapper.emitted('startThread')).toContainEqual([
-      '/srv/app',
-      'ssh:remote-1',
-    ])
+    expect(wrapper.find('[data-codex-start-remote-thread]').exists()).toBe(false)
     expect(apiPostMock).toHaveBeenCalledTimes(5)
   })
 
@@ -350,28 +416,24 @@ describe('CodexSidebar', () => {
       },
     })
 
+    await wrapper.get('[data-codex-open-settings]').trigger('click')
     await wrapper.get('[data-codex-edit-remote]').trigger('click')
-    const modeButtons = wrapper
-      .get('[data-codex-remote-connection-mode]')
-      .findAll('button')
+    const modeButtons = wrapper.get('[data-codex-remote-connection-mode]').findAll('button')
     expect(modeButtons[1]?.attributes('aria-pressed')).toBe('true')
     expect(wrapper.find('[data-codex-remote-host]').exists()).toBe(false)
     await wrapper.get('[data-codex-remote-display-name]').setValue('Edited')
     await wrapper.get('[data-codex-save-remote]').trigger('click')
 
-    expect(apiPutMock).toHaveBeenCalledWith(
-      '/api/codex/remote-connections/remote-1',
-      {
-        display_name: 'Edited',
-        ssh_host: '',
-        ssh_username: '',
-        ssh_port: null,
-        ssh_alias: 'prod',
-        identity_file: '',
-        remote_path: '~',
-        auto_connect: false,
-      },
-    )
+    expect(apiPutMock).toHaveBeenCalledWith('/api/codex/remote-connections/remote-1', {
+      display_name: 'Edited',
+      ssh_host: '',
+      ssh_username: '',
+      ssh_port: null,
+      ssh_alias: 'prod',
+      identity_file: '',
+      remote_path: '~',
+      auto_connect: false,
+    })
     expect(wrapper.emitted('remoteConnectionChanged')).toHaveLength(1)
   })
 
@@ -455,10 +517,7 @@ describe('CodexSidebar', () => {
     expect(wrapper.find('[data-codex-thread-host]').exists()).toBe(false)
 
     const projectIcons = wrapper.findAll('[data-codex-project-source-icon]')
-    expect(projectIcons.map((item) => item.attributes('data-source'))).toEqual([
-      'remote',
-      'local',
-    ])
+    expect(projectIcons.map((item) => item.attributes('data-source'))).toEqual(['remote', 'local'])
     expect(projectIcons[0]?.find('svg').exists()).toBe(true)
     expect(wrapper.get('[data-codex-project-alias]').text()).toBe('build-box')
     expect(wrapper.get('[data-codex-project-status]').attributes()).toMatchObject({
@@ -466,18 +525,11 @@ describe('CodexSidebar', () => {
       'data-status': 'connected',
     })
     expect(wrapper.get('[data-codex-project-remote-meta]').classes()).toEqual(
-      expect.arrayContaining([
-        'group-hover/project:hidden',
-        'group-focus-within/project:hidden',
-      ]),
+      expect.arrayContaining(['group-hover/project:hidden', 'group-focus-within/project:hidden']),
     )
     expect(wrapper.get('[data-codex-project-row]').classes()).toContain('relative')
     expect(wrapper.get('[data-codex-project-action-spacer]').classes()).toEqual(
-      expect.arrayContaining([
-        'hidden',
-        'w-7',
-        'group-hover/project:block',
-      ]),
+      expect.arrayContaining(['hidden', 'w-7', 'group-hover/project:block']),
     )
     expect(wrapper.findAll('[data-codex-project-start-thread]')[0]!.classes()).toEqual(
       expect.arrayContaining(['!absolute', 'right-0', 'group-hover/project:opacity-100']),
@@ -497,12 +549,8 @@ describe('CodexSidebar', () => {
     await wrapper
       .get('button[aria-label="Open Codex thread actions thread-alpha-new"]')
       .trigger('click')
-    await wrapper
-      .get('[data-codex-thread-menu-item="Fork"]')
-      .trigger('click')
-    await wrapper
-      .get('[data-codex-thread-menu-item="Copy ID"]')
-      .trigger('click')
+    await wrapper.get('[data-codex-thread-menu-item="Fork"]').trigger('click')
+    await wrapper.get('[data-codex-thread-menu-item="Copy ID"]').trigger('click')
     await wrapper.get('[data-codex-archive-thread]').trigger('click')
 
     expect(wrapper.emitted('forkThread')).toEqual([['thread-alpha-new']])
@@ -517,9 +565,7 @@ describe('CodexSidebar', () => {
     await wrapper
       .get('button[aria-label="Open Codex thread actions thread-alpha-new"]')
       .trigger('click')
-    await wrapper
-      .get('[data-codex-thread-menu-item="Copy ID"]')
-      .trigger('click')
+    await wrapper.get('[data-codex-thread-menu-item="Copy ID"]').trigger('click')
 
     expect(wrapper.emitted('copyError')).toEqual([['Unable to copy thread id.']])
   })
@@ -552,7 +598,9 @@ describe('CodexSidebar', () => {
       .trigger('click')
 
     expect(wrapper.get('[data-codex-thread-menu-item="Fork"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-codex-thread-menu-item="Copy ID"]').attributes('disabled')).toBeUndefined()
+    expect(
+      wrapper.get('[data-codex-thread-menu-item="Copy ID"]').attributes('disabled'),
+    ).toBeUndefined()
   })
 
   it('renames threads inline from the thread row', async () => {
@@ -562,9 +610,7 @@ describe('CodexSidebar', () => {
     await wrapper.get('[data-codex-thread-rename-input]').setValue('Renamed thread')
     await wrapper.get('[data-codex-thread-rename-input]').trigger('keydown.enter')
 
-    expect(wrapper.emitted('renameThread')).toEqual([
-      ['thread-alpha-new', 'Renamed thread'],
-    ])
+    expect(wrapper.emitted('renameThread')).toEqual([['thread-alpha-new', 'Renamed thread']])
   })
 
   it('cancels inline thread rename with Escape', async () => {

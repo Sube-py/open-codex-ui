@@ -32,8 +32,7 @@ function filesystemResponse(
 }
 
 function mountPicker(props: Partial<InstanceType<typeof CodexHostPathPicker>['$props']> = {}) {
-  let wrapper: ReturnType<typeof mount>
-  wrapper = mount(CodexHostPathPicker, {
+  const wrapper = mount(CodexHostPathPicker, {
     props: {
       visible: true,
       selectedPath: '',
@@ -141,12 +140,8 @@ describe('CodexHostPathPicker', () => {
     await wrapper.get('[data-codex-host-path-folder]').trigger('click')
     await flushPromises()
 
-    expect(apiGetMock).toHaveBeenLastCalledWith(
-      '/api/codex/filesystem?path=%2Ftmp%2Falpha',
-    )
-    expect(wrapper.get('[data-codex-host-path-current]').text()).toContain(
-      '/tmp/alpha',
-    )
+    expect(apiGetMock).toHaveBeenLastCalledWith('/api/codex/filesystem?path=%2Ftmp%2Falpha')
+    expect(wrapper.get('[data-codex-host-path-current]').text()).toContain('/tmp/alpha')
 
     const breadcrumbItems = wrapper.findAll('[data-codex-breadcrumb-item]')
     await breadcrumbItems[1]!.trigger('click')
@@ -188,9 +183,7 @@ describe('CodexHostPathPicker', () => {
     })
     await flushPromises()
 
-    expect(apiGetMock).toHaveBeenCalledWith(
-      '/api/codex/filesystem?path=~%2F.ssh',
-    )
+    expect(apiGetMock).toHaveBeenCalledWith('/api/codex/filesystem?path=~%2F.ssh')
     expect(wrapper.find('[data-codex-host-path-confirm]').exists()).toBe(false)
   })
 
@@ -200,9 +193,18 @@ describe('CodexHostPathPicker', () => {
     const wrapper = mountPicker({ selectedPath: '/private' })
     await flushPromises()
 
-    expect(wrapper.get('[data-codex-host-path-error]').text()).toContain(
-      'Permission denied',
-    )
+    expect(wrapper.get('[data-codex-host-path-error]').text()).toContain('Permission denied')
     expect(wrapper.emitted('select')).toBeUndefined()
+  })
+
+  it('browses the selected remote host', async () => {
+    apiGetMock.mockResolvedValueOnce(filesystemResponse('/srv/app'))
+
+    mountPicker({ selectedPath: '/srv/app', hostId: 'ssh:build' })
+    await flushPromises()
+
+    expect(apiGetMock).toHaveBeenCalledWith(
+      '/api/codex/filesystem?path=%2Fsrv%2Fapp&host_id=ssh%3Abuild',
+    )
   })
 })

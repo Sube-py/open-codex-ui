@@ -13,17 +13,21 @@ import type { CodexFilesystemEntry, CodexFilesystemResponse } from '../types'
 
 const visible = defineModel<boolean>('visible', { required: true })
 
-const props = withDefaults(defineProps<{
-  selectedPath?: string
-  disabled?: boolean
-  title?: string
-  confirmLabel?: string
-  allowFiles?: boolean
-  allowCurrentFolder?: boolean
-}>(), {
-  allowCurrentFolder: true,
-  allowFiles: false,
-})
+const props = withDefaults(
+  defineProps<{
+    selectedPath?: string
+    disabled?: boolean
+    title?: string
+    confirmLabel?: string
+    allowFiles?: boolean
+    allowCurrentFolder?: boolean
+    hostId?: string
+  }>(),
+  {
+    allowCurrentFolder: true,
+    allowFiles: false,
+  },
+)
 
 const emit = defineEmits<{
   select: [path: string]
@@ -47,8 +51,8 @@ const isMobile = ref(false)
 let mediaQuery: MediaQueryList | null = null
 
 const drawerPosition = computed(() => (isMobile.value ? 'full' : 'right'))
-const canUseCurrentFolder = computed(() =>
-  Boolean(currentPath.value) && !loading.value && props.allowCurrentFolder !== false,
+const canUseCurrentFolder = computed(
+  () => Boolean(currentPath.value) && !loading.value && props.allowCurrentFolder !== false,
 )
 const currentLabel = computed(() => currentPath.value || 'Loading folders')
 const drawerTitle = computed(() => props.title || 'Choose project folder')
@@ -110,17 +114,21 @@ async function loadDirectory(path?: string) {
   loading.value = true
   errorMessage.value = ''
   try {
-    const query = path ? `?path=${encodeURIComponent(path)}` : ''
-    const payload = await apiGet<CodexFilesystemResponse>(
-      `/api/codex/filesystem${query}`,
-    )
+    const searchParams: string[] = []
+    if (path) {
+      searchParams.push(`path=${encodeURIComponent(path)}`)
+    }
+    if (props.hostId && props.hostId !== 'local') {
+      searchParams.push(`host_id=${encodeURIComponent(props.hostId)}`)
+    }
+    const query = searchParams.length ? `?${searchParams.join('&')}` : ''
+    const payload = await apiGet<CodexFilesystemResponse>(`/api/codex/filesystem${query}`)
     currentPath.value = payload.path
     parentPath.value = payload.parent_path ?? null
     roots.value = payload.roots
     entries.value = payload.entries
   } catch (error) {
-    errorMessage.value =
-      error instanceof Error ? error.message : 'Unable to load host folders.'
+    errorMessage.value = error instanceof Error ? error.message : 'Unable to load host folders.'
   } finally {
     loading.value = false
   }
@@ -158,8 +166,7 @@ function rootForPath(path: string) {
     return roots.value[0]
   }
   return (
-    roots.value.find((root) => path === root.path || path.startsWith(root.path)) ??
-    roots.value[0]
+    roots.value.find((root) => path === root.path || path.startsWith(root.path)) ?? roots.value[0]
   )
 }
 
@@ -209,17 +216,7 @@ function entryIcon(entry: CodexFilesystemEntry) {
 }
 
 function isCodeExtension(extension: string) {
-  return [
-    '.css',
-    '.html',
-    '.js',
-    '.json',
-    '.md',
-    '.py',
-    '.ts',
-    '.tsx',
-    '.vue',
-  ].includes(extension)
+  return ['.css', '.html', '.js', '.json', '.md', '.py', '.ts', '.tsx', '.vue'].includes(extension)
 }
 
 function isImageExtension(extension: string) {
@@ -237,7 +234,9 @@ function isImageExtension(extension: string) {
   >
     <div class="flex h-full min-h-0 flex-col gap-3">
       <div class="grid gap-2">
-        <div class="flex min-w-0 items-center gap-2 rounded-lg border border-[color:var(--app-border)] bg-[rgba(255,253,247,0.8)] px-3 py-2 text-sm text-[color:var(--app-text)]">
+        <div
+          class="flex min-w-0 items-center gap-2 rounded-lg border border-[color:var(--app-border)] bg-[rgba(255,253,247,0.8)] px-3 py-2 text-sm text-[color:var(--app-text)]"
+        >
           <i class="pi pi-folder-open shrink-0 text-[color:var(--app-text-soft)]"></i>
           <span class="truncate" data-codex-host-path-current>{{ currentLabel }}</span>
         </div>
@@ -261,12 +260,7 @@ function isImageExtension(extension: string) {
         </Breadcrumb>
       </div>
 
-      <Message
-        v-if="errorMessage"
-        severity="error"
-        :closable="false"
-        data-codex-host-path-error
-      >
+      <Message v-if="errorMessage" severity="error" :closable="false" data-codex-host-path-error>
         {{ errorMessage }}
       </Message>
 
@@ -341,10 +335,7 @@ function isImageExtension(extension: string) {
         </div>
       </ScrollPanel>
 
-      <div
-        class="grid gap-2 pt-1"
-        :class="allowCurrentFolder ? 'grid-cols-2' : 'grid-cols-1'"
-      >
+      <div class="grid gap-2 pt-1" :class="allowCurrentFolder ? 'grid-cols-2' : 'grid-cols-1'">
         <Button
           label="Cancel"
           icon="pi pi-times"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,8 @@ from yier_web.schemas import (
     BackendHealth,
     BackendOption,
     CodexConfigPayload,
+    CodexProjectDefinition,
+    CodexProjectPayload,
     CodexRemoteConnection,
     CodexRemoteConnectionPayload,
     ConfigResponse,
@@ -20,6 +23,7 @@ from yier_web.schemas import (
     MCPRuntimeEntry,
     SaveAppSettingsRequest,
     SaveLLMRequest,
+    CodexThreadProjectAssignment,
     WebSettings,
 )
 
@@ -115,8 +119,14 @@ class AppConfigService:
 
     def save_app_settings(self, payload: SaveAppSettingsRequest) -> WebSettings:
         settings = self.load_web_settings()
+        projects = settings.codex.projects
+        assignments = settings.codex.thread_project_assignments
+        projectless_thread_ids = settings.codex.projectless_thread_ids
         settings.session_defaults = payload.session_defaults
         settings.codex = payload.codex
+        settings.codex.projects = projects
+        settings.codex.thread_project_assignments = assignments
+        settings.codex.projectless_thread_ids = projectless_thread_ids
         settings.allowed_roots = self._normalize_allowed_roots(settings.allowed_roots)
         if not settings.allowed_roots:
             settings.allowed_roots = self.default_allowed_roots()
@@ -141,10 +151,107 @@ class AppConfigService:
             if existing.id != connection.id
         ]
         connections.append(connection)
-        settings.codex.remote_connections = self._normalize_remote_connections(connections)
+        settings.codex.remote_connections = self._normalize_remote_connections(
+            connections
+        )
         connection = settings.codex.remote_connections[-1]
         self._write_json(self.settings_path, settings.model_dump())
         return connection
+
+    def save_codex_project(
+        self, payload: CodexProjectPayload
+    ) -> CodexProjectDefinition:
+        settings = self.load_web_settings()
+        host_id = payload.host_id or "local"
+        kind = payload.kind
+        if kind == "local":
+            host_id = "local"
+            project_path = self.resolve_project_path(payload.project_path)
+        else:
+            if not host_id.startswith("ssh:"):
+                raise ValueError("A remote project requires an SSH host.")
+            connection_id = host_id.removeprefix("ssh:")
+            if connection_id not in {
+                connection.id for connection in settings.codex.remote_connections
+            }:
+                raise ValueError("Remote connection not found.")
+            project_path = payload.project_path
+
+        for project in settings.codex.projects:
+            if project.host_id == host_id and project_path in project.root_paths:
+                raise ValueError("This project has already been added.")
+
+        now = time.time()
+        project = CodexProjectDefinition(
+            name=payload.name or self._project_name(project_path),
+            kind=kind,
+            host_id=host_id,
+            root_paths=[project_path],
+            created_at=now,
+            updated_at=now,
+        )
+        settings.codex.projects.append(project)
+        self._write_json(self.settings_path, settings.model_dump())
+        return project
+
+    def delete_codex_project(self, project_id: str) -> None:
+        settings = self.load_web_settings()
+        before = len(settings.codex.projects)
+        settings.codex.projects = [
+            project for project in settings.codex.projects if project.id != project_id
+        ]
+        if len(settings.codex.projects) == before:
+            raise ValueError("Project not found.")
+        settings.codex.thread_project_assignments = {
+            thread_id: assignment
+            for thread_id, assignment in settings.codex.thread_project_assignments.items()
+            if assignment.project_id != project_id
+        }
+        self._write_json(self.settings_path, settings.model_dump())
+
+    def assign_codex_thread_project(
+        self,
+        thread_id: str,
+        *,
+        host_id: str,
+        cwd: str,
+    ) -> None:
+        settings = self.load_web_settings()
+        project = self._matching_codex_project(settings.codex.projects, host_id, cwd)
+        projectless_thread_ids = set(settings.codex.projectless_thread_ids)
+        if project is None:
+            settings.codex.thread_project_assignments.pop(thread_id, None)
+            projectless_thread_ids.add(thread_id)
+        else:
+            settings.codex.thread_project_assignments[thread_id] = (
+                CodexThreadProjectAssignment(
+                    project_id=project.id,
+                    project_kind=project.kind,
+                    host_id=host_id,
+                    cwd=cwd,
+                )
+            )
+            projectless_thread_ids.discard(thread_id)
+        settings.codex.projectless_thread_ids = sorted(projectless_thread_ids)
+        self._write_json(self.settings_path, settings.model_dump())
+
+    def copy_codex_thread_assignment(
+        self, source_thread_id: str, thread_id: str
+    ) -> None:
+        settings = self.load_web_settings()
+        assignment = settings.codex.thread_project_assignments.get(source_thread_id)
+        projectless_thread_ids = set(settings.codex.projectless_thread_ids)
+        if assignment is not None:
+            settings.codex.thread_project_assignments[thread_id] = (
+                assignment.model_copy()
+            )
+            projectless_thread_ids.discard(thread_id)
+        elif source_thread_id in projectless_thread_ids:
+            projectless_thread_ids.add(thread_id)
+        else:
+            return
+        settings.codex.projectless_thread_ids = sorted(projectless_thread_ids)
+        self._write_json(self.settings_path, settings.model_dump())
 
     def delete_codex_remote_connection(self, connection_id: str) -> None:
         settings = self.load_web_settings()
@@ -155,12 +262,28 @@ class AppConfigService:
         ]
         if settings.codex.active_remote_connection_id == connection_id:
             settings.codex.active_remote_connection_id = ""
+        host_id = f"ssh:{connection_id}"
+        removed_project_ids = {
+            project.id
+            for project in settings.codex.projects
+            if project.host_id == host_id
+        }
+        settings.codex.projects = [
+            project for project in settings.codex.projects if project.host_id != host_id
+        ]
+        settings.codex.thread_project_assignments = {
+            thread_id: assignment
+            for thread_id, assignment in settings.codex.thread_project_assignments.items()
+            if assignment.project_id not in removed_project_ids
+        }
         self._write_json(self.settings_path, settings.model_dump())
 
     def set_active_codex_remote_connection(self, connection_id: str) -> WebSettings:
         settings = self.load_web_settings()
         if connection_id:
-            known_ids = {connection.id for connection in settings.codex.remote_connections}
+            known_ids = {
+                connection.id for connection in settings.codex.remote_connections
+            }
             if connection_id not in known_ids:
                 raise ValueError("Remote connection not found.")
         settings.codex.active_remote_connection_id = connection_id
@@ -219,6 +342,7 @@ class AppConfigService:
                 service_tier=settings.codex.service_tier,
                 active_remote_connection_id=settings.codex.active_remote_connection_id,
                 remote_connections=settings.codex.remote_connections,
+                projects=settings.codex.projects,
             ),
             allowed_roots=settings.allowed_roots,
             mcp_runtime=mcp_runtime,
@@ -297,6 +421,25 @@ class AppConfigService:
             seen.add(item.id)
             normalized.append(item)
         return normalized
+
+    def _project_name(self, project_path: str) -> str:
+        normalized = project_path.rstrip("/\\")
+        return Path(normalized).name or project_path
+
+    def _matching_codex_project(
+        self,
+        projects: list[CodexProjectDefinition],
+        host_id: str,
+        cwd: str,
+    ) -> CodexProjectDefinition | None:
+        return next(
+            (
+                project
+                for project in projects
+                if project.host_id == host_id and cwd in project.root_paths
+            ),
+            None,
+        )
 
     def _remote_connection_id(self, connection: CodexRemoteConnection) -> str:
         source = connection.ssh_alias or connection.ssh_host or connection.display_name
@@ -431,7 +574,53 @@ class AppConfigService:
         remote_ids = {connection.id for connection in settings.codex.remote_connections}
         if settings.codex.active_remote_connection_id not in remote_ids:
             settings.codex.active_remote_connection_id = ""
+        known_hosts = {
+            "local",
+            *(f"ssh:{connection_id}" for connection_id in remote_ids),
+        }
+        settings.codex.projects = [
+            project
+            for project in settings.codex.projects
+            if project.root_paths and project.host_id in known_hosts
+        ]
+        settings.codex.projectless_thread_ids = list(
+            dict.fromkeys(
+                [
+                    *settings.codex.projectless_thread_ids,
+                    *self._desktop_projectless_thread_ids(),
+                ]
+            )
+        )
+        project_ids = {project.id for project in settings.codex.projects}
+        settings.codex.thread_project_assignments = {
+            thread_id: assignment
+            for thread_id, assignment in settings.codex.thread_project_assignments.items()
+            if assignment.project_id in project_ids
+        }
         return settings
+
+    def _desktop_projectless_thread_ids(self) -> list[str]:
+        state_path = self.home_dir / ".codex" / ".codex-global-state.json"
+        if not state_path.exists():
+            return []
+        try:
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
+        candidates = payload.get("projectless-thread-ids")
+        if not isinstance(candidates, list):
+            persisted_atoms = payload.get("electron-persisted-atom-state")
+            if isinstance(persisted_atoms, dict):
+                candidates = persisted_atoms.get("projectless-thread-ids")
+        if not isinstance(candidates, list):
+            return []
+        return list(
+            dict.fromkeys(
+                thread_id.strip()
+                for thread_id in candidates
+                if isinstance(thread_id, str) and thread_id.strip()
+            )
+        )
 
     def _resolve_user_path(self, raw_path: str) -> Path:
         if raw_path == "~":

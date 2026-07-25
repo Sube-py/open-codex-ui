@@ -6,17 +6,15 @@ import InputText from 'primevue/inputtext'
 import Menu from 'primevue/menu'
 import ScrollPanel from 'primevue/scrollpanel'
 
-import type {
-  CodexNativeSessionSummary,
-  CodexProjectGroup,
-  CodexWorkspaceResponse,
-} from '../types'
+import type { CodexNativeSessionSummary, CodexProjectGroup, CodexWorkspaceResponse } from '../types'
 import { displayPath, isWorkingStatus } from '../lib/format'
-import CodexHostPathPicker from './CodexHostPathPicker.vue'
+import CodexAddProjectDialog from './CodexAddProjectDialog.vue'
 import CodexProjectIdentity from './CodexProjectIdentity.vue'
-import CodexRemoteConnections from './CodexRemoteConnections.vue'
+import CodexSettingsDialog from './CodexSettingsDialog.vue'
 
 const EXPANDED_PROJECTS_STORAGE_KEY = 'yier.codex.sidebar.expanded-projects'
+const PROJECT_THREAD_PAGE_SIZE = 10
+const CHATS_THREAD_PAGE_SIZE = 50
 
 const projectPath = defineModel<string>('projectPath', { required: true })
 
@@ -41,6 +39,7 @@ const emit = defineEmits<{
 
 type ProjectWithKey = CodexProjectGroup & {
   key: string
+  isChats?: boolean
 }
 
 type MenuRef = {
@@ -49,11 +48,13 @@ type MenuRef = {
 
 const copiedThreadId = ref('')
 const editingThreadId = ref('')
-const pathPickerVisible = ref(false)
+const addProjectVisible = ref(false)
+const settingsVisible = ref(false)
 const renameDraft = ref('')
 const threadActionMenu = ref<MenuRef | null>(null)
 const threadActionTarget = ref<CodexNativeSessionSummary | null>(null)
 const userExpandedProjects = ref<Record<string, boolean>>(readExpandedProjects())
+const visibleThreadLimits = ref<Record<string, number>>({})
 
 const projects = computed<ProjectWithKey[]>(() =>
   props.workspace.projects
@@ -69,6 +70,33 @@ const projects = computed<ProjectWithKey[]>(() =>
     }))
     .sort(compareProjects),
 )
+const recentThreads = computed(() =>
+  [...(props.workspace.recent_threads ?? [])].sort(
+    (left, right) =>
+      usedAt(right) - usedAt(left) ||
+      right.started_at - left.started_at ||
+      right.thread_id.localeCompare(left.thread_id),
+  ),
+)
+const sections = computed<ProjectWithKey[]>(() => {
+  const recent = recentThreads.value.length
+    ? [
+        {
+          id: 'chats',
+          project: 'Chats',
+          project_path: '',
+          host_id: 'local',
+          kind: 'local' as const,
+          root_paths: [],
+          session_count: recentThreads.value.length,
+          sessions: recentThreads.value,
+          key: 'chats',
+          isChats: true,
+        },
+      ]
+    : []
+  return [...projects.value, ...recent]
+})
 
 const latestProjectKey = computed(() => projects.value[0]?.key ?? '')
 const activeProjectKey = computed(() => {
@@ -76,7 +104,7 @@ const activeProjectKey = computed(() => {
     return ''
   }
   return (
-    projects.value.find((project) =>
+    sections.value.find((project) =>
       project.sessions.some((thread) => thread.thread_id === props.activeThreadId),
     )?.key ?? ''
   )
@@ -135,9 +163,7 @@ function readExpandedProjects() {
     return {}
   }
   try {
-    const value = JSON.parse(
-      localStorage.getItem(EXPANDED_PROJECTS_STORAGE_KEY) ?? '{}',
-    )
+    const value = JSON.parse(localStorage.getItem(EXPANDED_PROJECTS_STORAGE_KEY) ?? '{}')
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return {}
     }
@@ -164,10 +190,7 @@ function usedAt(thread: { updated_at: number; started_at: number }) {
 }
 
 function latestProjectTime(project: CodexProjectGroup) {
-  return project.sessions.reduce(
-    (latest, session) => Math.max(latest, usedAt(session)),
-    0,
-  )
+  return project.sessions.reduce((latest, session) => Math.max(latest, usedAt(session)), 0)
 }
 
 function compareProjects(left: CodexProjectGroup, right: CodexProjectGroup) {
@@ -236,7 +259,11 @@ function isProjectExpanded(project: ProjectWithKey) {
   if (project.key in userExpandedProjects.value) {
     return userExpandedProjects.value[project.key] ?? false
   }
-  return project.key === activeProjectKey.value || project.key === latestProjectKey.value
+  return (
+    project.isChats === true ||
+    project.key === activeProjectKey.value ||
+    project.key === latestProjectKey.value
+  )
 }
 
 function toggleProject(project: ProjectWithKey) {
@@ -246,12 +273,26 @@ function toggleProject(project: ProjectWithKey) {
   }
 }
 
-function selectProjectPath(path: string) {
-  const normalizedPath = path.trim()
-  projectPath.value = normalizedPath
-  pathPickerVisible.value = false
-  if (normalizedPath && !props.busy) {
-    emit('startThread', normalizedPath, 'local')
+function threadPageSize(project: ProjectWithKey) {
+  return project.isChats ? CHATS_THREAD_PAGE_SIZE : PROJECT_THREAD_PAGE_SIZE
+}
+
+function visibleThreads(project: ProjectWithKey) {
+  const limit = visibleThreadLimits.value[project.key] ?? threadPageSize(project)
+  return project.sessions.filter(
+    (thread, index) => index < limit || thread.thread_id === props.activeThreadId,
+  )
+}
+
+function hiddenThreadCount(project: ProjectWithKey) {
+  return project.sessions.length - visibleThreads(project).length
+}
+
+function showMoreThreads(project: ProjectWithKey) {
+  const currentLimit = visibleThreadLimits.value[project.key] ?? threadPageSize(project)
+  visibleThreadLimits.value = {
+    ...visibleThreadLimits.value,
+    [project.key]: Math.min(project.sessions.length, currentLimit + threadPageSize(project)),
   }
 }
 
@@ -310,18 +351,16 @@ async function copyThreadId(threadId: string) {
 </script>
 
 <template>
-  <aside class="flex min-h-0 flex-col border-r border-[color:var(--app-border)] bg-[rgba(255,253,247,0.82)]">
-    <header class="flex items-center justify-between gap-3 border-b border-[color:var(--app-border)] px-4 py-3">
+  <aside
+    class="flex min-h-0 flex-col border-r border-[color:var(--app-border)] bg-[rgba(255,253,247,0.82)]"
+  >
+    <header
+      class="flex items-center justify-between gap-3 border-b border-[color:var(--app-border)] px-4 py-3"
+    >
       <div class="flex min-w-0 items-center gap-3">
-        <img
-          src="/brand/yier-icon.svg"
-          alt=""
-          class="h-9 w-9 shrink-0 rounded-xl"
-        >
+        <img src="/brand/yier-icon.svg" alt="" class="h-9 w-9 shrink-0 rounded-xl" />
         <div class="min-w-0">
-          <h1 class="m-0 truncate text-base font-semibold text-[color:var(--app-text)]">
-            Yier
-          </h1>
+          <h1 class="m-0 truncate text-base font-semibold text-[color:var(--app-text)]">Yier</h1>
           <p class="m-0 mt-0.5 truncate text-[0.72rem] text-[color:var(--app-text-soft)]">
             Codex anywhere
           </p>
@@ -335,37 +374,25 @@ async function copyThreadId(threadId: string) {
         aria-label="Add Codex project"
         data-codex-add-project
         :disabled="busy"
-        @click="pathPickerVisible = true"
-      />
-      <CodexHostPathPicker
-        v-model:visible="pathPickerVisible"
-        :selected-path="projectPath"
-        :disabled="busy"
-        @select="selectProjectPath"
+        @click="addProjectVisible = true"
       />
     </header>
-
-    <CodexRemoteConnections
-      :workspace="workspace"
-      :busy="busy"
-      @start-thread="emit('startThread', $event.projectPath, $event.hostId)"
-      @remote-connection-changed="emit('remoteConnectionChanged')"
-    />
 
     <ScrollPanel class="min-h-0 flex-1">
       <div class="p-3">
         <div
-          v-if="!projects.length"
+          v-if="!sections.length"
           class="grid place-items-center gap-2 p-6 text-center text-sm text-[color:var(--app-text-soft)]"
         >
           <i class="pi pi-inbox text-lg"></i>
-          <p class="m-0">No threads yet.</p>
+          <p class="m-0">Add a project to get started.</p>
         </div>
 
         <section
-          v-for="project in projects"
+          v-for="project in sections"
           :key="project.key"
           class="mb-2 grid gap-1"
+          :data-codex-section-key="project.key"
         >
           <div
             class="group/project relative flex items-center rounded-lg transition hover:bg-white/65 focus-within:bg-white/65"
@@ -379,6 +406,7 @@ async function copyThreadId(threadId: string) {
               @click="toggleProject(project)"
             >
               <CodexProjectIdentity
+                v-if="!project.isChats"
                 :expanded="isProjectExpanded(project)"
                 :host-id="projectHostId(project)"
                 :workspace="workspace"
@@ -387,8 +415,18 @@ async function copyThreadId(threadId: string) {
                   {{ projectTitle(project) }}
                 </span>
               </CodexProjectIdentity>
+              <span
+                v-else
+                class="flex min-w-0 items-center gap-2 text-sm font-semibold text-[color:var(--app-text)]"
+              >
+                <i
+                  class="pi pi-comments w-4 shrink-0 text-center text-[color:var(--app-text-soft)]"
+                ></i>
+                <span class="truncate">Chats</span>
+              </span>
             </button>
             <Button
+              v-if="!project.isChats"
               icon="pi pi-pen-to-square"
               severity="secondary"
               text
@@ -402,19 +440,17 @@ async function copyThreadId(threadId: string) {
             />
           </div>
 
-          <div
-            v-show="isProjectExpanded(project)"
-            class="grid gap-0.5"
-          >
+          <div v-show="isProjectExpanded(project)" class="grid gap-0.5">
             <article
-              v-for="thread in project.sessions"
+              v-for="thread in visibleThreads(project)"
               :key="thread.thread_id"
               class="group/thread grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border py-1.5 pl-[2.15rem] pr-2 transition"
               data-codex-thread-row
-              :class="thread.thread_id === activeThreadId
-                ? 'border-[rgba(21,94,99,0.24)] bg-[rgba(21,94,99,0.08)]'
-                : 'border-transparent hover:border-[rgba(21,94,99,0.24)] hover:bg-[rgba(21,94,99,0.08)] focus-within:border-[rgba(21,94,99,0.24)] focus-within:bg-[rgba(21,94,99,0.08)]'
-                "
+              :class="
+                thread.thread_id === activeThreadId
+                  ? 'border-[rgba(21,94,99,0.24)] bg-[rgba(21,94,99,0.08)]'
+                  : 'border-transparent hover:border-[rgba(21,94,99,0.24)] hover:bg-[rgba(21,94,99,0.08)] focus-within:border-[rgba(21,94,99,0.24)] focus-within:bg-[rgba(21,94,99,0.08)]'
+              "
             >
               <InputText
                 v-if="editingThreadId === thread.thread_id"
@@ -463,7 +499,9 @@ async function copyThreadId(threadId: string) {
                   {{ compactTimestamp(thread.updated_at || thread.started_at) }}
                 </span>
 
-                <div class="absolute inset-y-0 right-0 hidden h-5 shrink-0 items-center gap-0.5 group-hover/thread:flex group-focus-within/thread:flex">
+                <div
+                  class="absolute inset-y-0 right-0 hidden h-5 shrink-0 items-center gap-0.5 group-hover/thread:flex group-focus-within/thread:flex"
+                >
                   <Button
                     icon="pi pi-ellipsis-h"
                     severity="secondary"
@@ -499,16 +537,49 @@ async function copyThreadId(threadId: string) {
                 </div>
               </div>
             </article>
+            <Button
+              v-if="hiddenThreadCount(project) > 0"
+              icon="pi pi-angle-down"
+              :label="`Show ${hiddenThreadCount(project)} more`"
+              severity="secondary"
+              text
+              size="small"
+              class="!justify-start !py-1 !pl-[2.15rem] !text-xs"
+              data-codex-show-more-threads
+              @click="showMoreThreads(project)"
+            />
           </div>
         </section>
       </div>
     </ScrollPanel>
 
-    <Menu
-      ref="threadActionMenu"
-      :model="threadActionItems"
-      popup
-      data-codex-thread-action-menu
+    <footer
+      class="border-t border-[color:var(--app-border)] p-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))]"
+    >
+      <button
+        type="button"
+        class="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-sm font-semibold text-[color:var(--app-text)] transition hover:bg-white/70"
+        data-codex-open-settings
+        @click="settingsVisible = true"
+      >
+        <i class="pi pi-cog w-4 text-center text-[color:var(--app-text-soft)]"></i>
+        <span>Settings</span>
+      </button>
+    </footer>
+
+    <CodexAddProjectDialog
+      v-model:visible="addProjectVisible"
+      :workspace="workspace"
+      :disabled="busy"
+      @project-changed="emit('remoteConnectionChanged')"
     />
+    <CodexSettingsDialog
+      v-model:visible="settingsVisible"
+      :workspace="workspace"
+      :busy="busy"
+      @remote-connection-changed="emit('remoteConnectionChanged')"
+    />
+
+    <Menu ref="threadActionMenu" :model="threadActionItems" popup data-codex-thread-action-menu />
   </aside>
 </template>

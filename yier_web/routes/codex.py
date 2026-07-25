@@ -30,6 +30,8 @@ from yier_web.schemas import (
     CodexFilesystemEntry,
     CodexFilesystemEntryKind,
     CodexFilesystemResponse,
+    CodexProjectDefinition,
+    CodexProjectPayload,
     CodexRemoteConnectionPayload,
     CodexRemoteConnectionApiKeyLoginPayload,
     CodexRemoteConnectionResponse,
@@ -207,6 +209,35 @@ class CodexController(Controller):
     async def get_workspace(self, state: State) -> CodexWorkspaceResponse:
         return await _codex_manager(state).workspace()
 
+    @post("/projects")
+    async def create_project(
+        self,
+        data: CodexProjectPayload,
+        state: State,
+    ) -> CodexProjectDefinition:
+        try:
+            return _codex_manager(state).config_service.save_codex_project(data)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+
+    @post("/projects/{project_id:str}/delete")
+    async def delete_project(
+        self,
+        project_id: str,
+        state: State,
+    ) -> dict[str, bool]:
+        try:
+            _codex_manager(state).config_service.delete_codex_project(project_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail=str(exc),
+            ) from exc
+        return {"ok": True}
+
     @get("/remote-connections")
     async def get_remote_connections(
         self,
@@ -324,7 +355,23 @@ class CodexController(Controller):
         return await _codex_manager(state).test_remote_connection(connection_id)
 
     @get("/filesystem")
-    async def get_filesystem(self, path: str | None = None) -> CodexFilesystemResponse:
+    async def get_filesystem(
+        self,
+        state: State,
+        path: str | None = None,
+        host_id: str = "local",
+    ) -> CodexFilesystemResponse:
+        if host_id and host_id != "local":
+            try:
+                return await _codex_manager(state).list_filesystem(
+                    host_id=host_id,
+                    path=path,
+                )
+            except (RuntimeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST,
+                    detail=str(exc),
+                ) from exc
         return _list_host_filesystem(path)
 
     @get("/image")

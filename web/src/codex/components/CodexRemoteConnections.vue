@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 
 import Button from 'primevue/button'
+import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import SelectButton from 'primevue/selectbutton'
 
@@ -24,7 +25,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   remoteConnectionChanged: []
-  startThread: [payload: { projectPath: string; hostId: string }]
 }>()
 
 const remoteDialogVisible = ref(false)
@@ -47,8 +47,13 @@ const remoteConnectionModeOptions = [
 
 const remoteConnections = computed(() => props.workspace.remote_connections ?? [])
 const remoteStatuses = computed(() => props.workspace.remote_connection_statuses ?? {})
-const identityFilePickerPath = computed(() =>
-  parentDirectory(remoteDraft.value.identity_file) || '~/.ssh',
+const identityFilePickerPath = computed(
+  () => parentDirectory(remoteDraft.value.identity_file) || '~/.ssh',
+)
+const apiKeyDialogTitle = computed(() =>
+  apiKeyDialogConnection.value
+    ? `Sign in to ${remoteTitle(apiKeyDialogConnection.value)}`
+    : 'Sign in',
 )
 
 function emptyRemoteDraft(): CodexRemoteConnectionPayload {
@@ -81,10 +86,12 @@ function directTarget(connection: Pick<CodexRemoteConnection, 'ssh_host' | 'ssh_
 }
 
 function remoteStatus(connection: CodexRemoteConnection) {
-  return remoteStatuses.value[connection.id] ?? {
-    status: 'disconnected',
-    detail: 'Not connected yet',
-  }
+  return (
+    remoteStatuses.value[connection.id] ?? {
+      status: 'disconnected',
+      detail: 'Not connected yet',
+    }
+  )
 }
 
 function remoteStatusLabel(connection: CodexRemoteConnection) {
@@ -205,7 +212,9 @@ async function saveRemoteConnection() {
     ssh_username: isAliasMode ? '' : remoteDraft.value.ssh_username,
     ssh_port: isAliasMode
       ? null
-      : remotePortDraft.value.trim() ? Number(remotePortDraft.value.trim()) : null,
+      : remotePortDraft.value.trim()
+        ? Number(remotePortDraft.value.trim())
+        : null,
     ssh_alias: isAliasMode ? remoteDraft.value.ssh_alias : '',
     identity_file: isAliasMode ? '' : remoteDraft.value.identity_file,
   }
@@ -240,13 +249,6 @@ async function saveRemoteConnection() {
   }
 }
 
-function startRemoteThread(connection: CodexRemoteConnection) {
-  emit('startThread', {
-    projectPath: connection.remote_path || '~',
-    hostId: `ssh:${connection.id}`,
-  })
-}
-
 async function testRemoteConnection(connection: CodexRemoteConnection) {
   remoteTestingId.value = connection.id
   remoteError.value = ''
@@ -266,10 +268,7 @@ async function testRemoteConnection(connection: CodexRemoteConnection) {
 async function restartRemoteConnection(connection: CodexRemoteConnection) {
   remoteError.value = ''
   try {
-    await apiPost(
-      `/api/codex/remote-connections/${encodeURIComponent(connection.id)}/restart`,
-      {},
-    )
+    await apiPost(`/api/codex/remote-connections/${encodeURIComponent(connection.id)}/restart`, {})
     emit('remoteConnectionChanged')
   } catch (error) {
     remoteError.value = error instanceof Error ? error.message : String(error)
@@ -320,10 +319,7 @@ async function loginRemoteApiKey() {
 async function deleteRemoteConnection(connection: CodexRemoteConnection) {
   remoteError.value = ''
   try {
-    await apiPost(
-      `/api/codex/remote-connections/${encodeURIComponent(connection.id)}/delete`,
-      {},
-    )
+    await apiPost(`/api/codex/remote-connections/${encodeURIComponent(connection.id)}/delete`, {})
     emit('remoteConnectionChanged')
   } catch (error) {
     remoteError.value = error instanceof Error ? error.message : String(error)
@@ -332,14 +328,16 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
 </script>
 
 <template>
-  <section class="border-b border-[color:var(--app-border)] px-3 py-2">
-    <div class="mb-2 flex items-center justify-between gap-2">
+  <section class="grid gap-4">
+    <div
+      class="flex items-center justify-between gap-3 border-b border-[color:var(--app-border)] pb-3"
+    >
       <div class="min-w-0">
-        <p class="m-0 truncate text-xs font-semibold uppercase tracking-wide text-[color:var(--app-text-soft)]">
-          SSH connections
-        </p>
-        <p class="m-0 truncate text-sm font-semibold text-[color:var(--app-text)]">
-          {{ remoteConnections.length ? `${remoteConnections.length} configured` : 'Local only' }}
+        <h2 class="m-0 text-base font-semibold text-[color:var(--app-text)]">
+          Remote environments
+        </h2>
+        <p class="m-0 mt-1 text-sm text-[color:var(--app-text-soft)]">
+          Connect to projects over SSH.
         </p>
       </div>
       <Button
@@ -355,17 +353,15 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
       />
     </div>
 
-    <div class="grid gap-1">
+    <div class="grid gap-2">
       <div
         v-for="connection in remoteConnections"
         :key="connection.id"
-        class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md px-2 py-1.5 transition hover:bg-white/65"
+        class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-[color:var(--app-border)] bg-white px-3 py-2.5"
         data-codex-remote-row
       >
         <div class="min-w-0">
-          <span
-            class="block truncate text-sm font-semibold text-[color:var(--app-text)]"
-          >
+          <span class="block truncate text-sm font-semibold text-[color:var(--app-text)]">
             {{ remoteTitle(connection) }}
           </span>
           <span class="block truncate text-[0.68rem] text-[color:var(--app-text-soft)]">
@@ -381,19 +377,6 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
           </span>
         </div>
         <div class="flex items-center gap-0.5">
-          <Button
-            icon="pi pi-pen-to-square"
-            severity="secondary"
-            text
-            rounded
-            size="small"
-            class="!h-6 !w-6 !min-w-6 !p-0 !text-[0.68rem]"
-            :aria-label="`Start thread on ${remoteTitle(connection)}`"
-            title="Start thread on this host"
-            data-codex-start-remote-thread
-            :disabled="busy"
-            @click.stop="startRemoteThread(connection)"
-          />
           <Button
             icon="pi pi-refresh"
             severity="secondary"
@@ -481,33 +464,18 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
     </p>
   </section>
 
-  <div
-    v-if="remoteDialogVisible"
-    class="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"
+  <Dialog
+    v-model:visible="remoteDialogVisible"
+    modal
+    :header="remoteEditingId ? 'Edit SSH connection' : 'Add SSH connection'"
+    class="w-[min(30rem,calc(100vw-2rem))]"
+    :draggable="false"
     data-codex-remote-dialog
-    @click.self="closeRemoteDialog"
   >
-    <section class="grid w-full max-w-md gap-3 rounded-lg border border-[color:var(--app-border)] bg-white p-4 shadow-xl">
-      <header class="flex items-center justify-between gap-3">
-        <h2 class="m-0 text-base font-semibold text-[color:var(--app-text)]">
-          {{ remoteEditingId ? 'Edit SSH connection' : 'Add SSH connection' }}
-        </h2>
-        <Button
-          icon="pi pi-times"
-          severity="secondary"
-          text
-          rounded
-          aria-label="Close SSH connection dialog"
-          @click="closeRemoteDialog"
-        />
-      </header>
-
+    <div class="grid gap-3">
       <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
         Display name
-        <InputText
-          v-model="remoteDraft.display_name"
-          data-codex-remote-display-name
-        />
+        <InputText v-model="remoteDraft.display_name" data-codex-remote-display-name />
       </label>
       <div class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
         <span>Connection method</span>
@@ -542,11 +510,7 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
           </label>
           <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
             Port
-            <InputText
-              v-model="remotePortDraft"
-              placeholder="22"
-              data-codex-remote-port
-            />
+            <InputText v-model="remotePortDraft" placeholder="22" data-codex-remote-port />
           </label>
         </div>
         <div class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
@@ -581,25 +545,13 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
       </label>
       <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
         Remote path
-        <InputText
-          v-model="remoteDraft.remote_path"
-          data-codex-remote-path
-        />
+        <InputText v-model="remoteDraft.remote_path" data-codex-remote-path />
       </label>
-      <p
-        v-if="remoteError"
-        class="m-0 text-sm text-red-700"
-        data-codex-remote-dialog-error
-      >
+      <p v-if="remoteError" class="m-0 text-sm text-red-700" data-codex-remote-dialog-error>
         {{ remoteError }}
       </p>
-      <footer class="flex justify-end gap-2">
-        <Button
-          label="Cancel"
-          severity="secondary"
-          outlined
-          @click="closeRemoteDialog"
-        />
+      <footer class="mt-1 flex justify-end gap-2">
+        <Button label="Cancel" severity="secondary" outlined @click="closeRemoteDialog" />
         <Button
           label="Save"
           icon="pi pi-save"
@@ -608,8 +560,8 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
           @click="saveRemoteConnection"
         />
       </footer>
-    </section>
-  </div>
+    </div>
+  </Dialog>
 
   <CodexHostPathPicker
     v-model:visible="identityFilePickerVisible"
@@ -622,26 +574,16 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
     @select="selectIdentityFile"
   />
 
-  <div
-    v-if="apiKeyDialogConnection"
-    class="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"
+  <Dialog
+    :visible="Boolean(apiKeyDialogConnection)"
+    modal
+    :header="apiKeyDialogTitle"
+    class="w-[min(30rem,calc(100vw-2rem))]"
+    :draggable="false"
     data-codex-remote-api-key-dialog
-    @click.self="closeApiKeyDialog"
+    @update:visible="!$event && closeApiKeyDialog()"
   >
-    <section class="grid w-full max-w-md gap-3 rounded-lg border border-[color:var(--app-border)] bg-white p-4 shadow-xl">
-      <header class="flex items-center justify-between gap-3">
-        <h2 class="m-0 text-base font-semibold text-[color:var(--app-text)]">
-          Sign in to {{ remoteTitle(apiKeyDialogConnection) }}
-        </h2>
-        <Button
-          icon="pi pi-times"
-          severity="secondary"
-          text
-          rounded
-          aria-label="Close API key dialog"
-          @click="closeApiKeyDialog"
-        />
-      </header>
+    <div class="grid gap-3">
       <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
         API key
         <InputText
@@ -652,20 +594,11 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
           @keydown.enter.prevent="loginRemoteApiKey"
         />
       </label>
-      <p
-        v-if="remoteError"
-        class="m-0 text-sm text-red-700"
-        data-codex-remote-api-key-error
-      >
+      <p v-if="remoteError" class="m-0 text-sm text-red-700" data-codex-remote-api-key-error>
         {{ remoteError }}
       </p>
-      <footer class="flex justify-end gap-2">
-        <Button
-          label="Cancel"
-          severity="secondary"
-          outlined
-          @click="closeApiKeyDialog"
-        />
+      <footer class="mt-1 flex justify-end gap-2">
+        <Button label="Cancel" severity="secondary" outlined @click="closeApiKeyDialog" />
         <Button
           label="Sign in"
           icon="pi pi-key"
@@ -674,6 +607,6 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
           @click="loginRemoteApiKey"
         />
       </footer>
-    </section>
-  </div>
+    </div>
+  </Dialog>
 </template>

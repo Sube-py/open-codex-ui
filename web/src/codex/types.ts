@@ -25,23 +25,35 @@ export interface CodexNativeSessionSummary {
   project: string
   project_path: string
   source: string
+  model_provider?: string
 }
 
 export interface CodexProjectGroup {
+  id?: string
   project: string
   project_path: string
   host_id?: string
   hostId?: string
+  kind?: 'local' | 'remote'
+  root_paths?: string[]
   session_count: number
   sessions: CodexNativeSessionSummary[]
 }
 
 export interface CodexWorkspaceResponse {
   projects: CodexProjectGroup[]
+  recent_threads?: CodexNativeSessionSummary[]
   paired_editors?: JsonRecord[]
   remote_connections?: CodexRemoteConnection[]
   active_remote_connection_id?: string
   remote_connection_statuses?: Record<string, CodexRemoteConnectionStatus>
+}
+
+export interface CodexProjectPayload {
+  name: string
+  kind: 'local' | 'remote'
+  host_id: string
+  project_path: string
 }
 
 export interface CodexRemoteConnection {
@@ -310,9 +322,6 @@ export interface CodexServerEvent<TPayload = unknown> {
   payload: TPayload
 }
 
-export type CodexSocketMessage =
-  | CodexAckEnvelope
-  | CodexErrorEnvelope
-  | CodexServerEvent
+export type CodexSocketMessage = CodexAckEnvelope | CodexErrorEnvelope | CodexServerEvent
 
 export type CodexSocketStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
