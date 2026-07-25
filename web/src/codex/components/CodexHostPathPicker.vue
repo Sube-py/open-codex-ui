@@ -341,7 +341,10 @@ function isImageExtension(extension: string) {
         </div>
       </ScrollPanel>
 
-      <div class="grid grid-cols-2 gap-2 pt-1">
+      <div
+        class="grid gap-2 pt-1"
+        :class="allowCurrentFolder ? 'grid-cols-2' : 'grid-cols-1'"
+      >
         <Button
           label="Cancel"
           icon="pi pi-times"
@@ -351,6 +354,7 @@ function isImageExtension(extension: string) {
           @click="visible = false"
         />
         <Button
+          v-if="allowCurrentFolder"
           :label="confirmLabel"
           icon="pi pi-check"
           :disabled="disabled || !canUseCurrentFolder"

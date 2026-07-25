@@ -30,7 +30,6 @@ from yier_web.schemas import (
     CodexFilesystemEntry,
     CodexFilesystemEntryKind,
     CodexFilesystemResponse,
-    CodexRemoteConnectionChatGptLoginResponse,
     CodexRemoteConnectionPayload,
     CodexRemoteConnectionApiKeyLoginPayload,
     CodexRemoteConnectionResponse,
@@ -251,10 +250,8 @@ class CodexController(Controller):
         current_active_id = (
             manager.config_service.load_web_settings().codex.active_remote_connection_id
         )
-        if (
-            current_active_id != previous_active_id
-            or current_active_id == connection.id
-        ):
+        await manager.restart_remote_connection(connection.id)
+        if current_active_id != previous_active_id:
             await manager.activate_remote_connection(current_active_id)
         return CodexRemoteConnectionResponse(connection=connection)
 
@@ -269,6 +266,7 @@ class CodexController(Controller):
             manager.config_service.load_web_settings().codex.active_remote_connection_id
             == connection_id
         )
+        await manager.disconnect_remote_connection(connection_id)
         manager.config_service.delete_codex_remote_connection(connection_id)
         if was_active:
             await manager.activate_remote_connection("")
@@ -317,23 +315,6 @@ class CodexController(Controller):
             data.api_key,
         )
 
-    @post("/remote-connections/{connection_id:str}/login-chatgpt")
-    async def login_remote_chatgpt(
-        self,
-        connection_id: str,
-        state: State,
-    ) -> CodexRemoteConnectionChatGptLoginResponse:
-        return await _codex_manager(state).start_remote_chatgpt_login(connection_id)
-
-    @post("/remote-connections/{connection_id:str}/login-chatgpt/stop")
-    async def stop_remote_chatgpt_login(
-        self,
-        connection_id: str,
-        state: State,
-    ) -> dict[str, bool]:
-        await _codex_manager(state).stop_remote_chatgpt_login(connection_id)
-        return {"ok": True}
-
     @post("/remote-connections/{connection_id:str}/test")
     async def test_remote_connection(
         self,
@@ -355,9 +336,10 @@ class CodexController(Controller):
         self,
         thread_id: str,
         state: State,
+        host_id: str | None = None,
     ) -> CodexThreadStateResponse:
         manager = _codex_manager(state)
-        thread_state = await manager.get_thread_state(thread_id)
+        thread_state = await manager.get_thread_state(thread_id, host_id=host_id)
         if thread_state is None:
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
@@ -373,9 +355,11 @@ class CodexController(Controller):
     ) -> CodexThreadCreateResponse:
         payload = await _codex_manager(state).start_thread(
             project_path=data.project_path,
+            host_id=data.host_id,
         )
         return CodexThreadCreateResponse(
             thread_id=str(payload["thread_id"]),
+            host_id=str(payload.get("host_id") or "local"),
             state=payload.get("state")
             if isinstance(payload.get("state"), dict)
             else None,

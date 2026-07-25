@@ -32,6 +32,7 @@ const workspaceMock: {
   projectPathDraft: '',
   queuedFollowups: [],
   refreshWorkspace: vi.fn(),
+  refreshWorkspaceAndSelect: vi.fn(),
   removeFollowup: vi.fn(),
   renameThread: vi.fn(),
   resumeEmbedThread: vi.fn(),

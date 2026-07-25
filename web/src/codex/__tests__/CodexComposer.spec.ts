@@ -8,12 +8,6 @@ import CodexHostPathPicker from '../components/CodexHostPathPicker.vue'
 
 import type { CodexConversationState, CodexWorkMode } from '../types'
 
-const apiPostMock = vi.fn()
-
-vi.mock('../../lib/api', () => ({
-  apiPost: (...args: unknown[]) => apiPostMock(...args),
-}))
-
 type ComposerProps = InstanceType<typeof CodexComposer>['$props']
 
 function mountCodexComposer(props: ComposerProps) {
@@ -28,18 +22,6 @@ function mountCodexComposer(props: ComposerProps) {
     },
   })
   return wrapper
-}
-
-async function selectComposerValue(
-  wrapper: ReturnType<typeof mount>,
-  selector: string,
-  value: string,
-) {
-  const select = wrapper.findComponent(selector)
-  expect(select.exists()).toBe(true)
-  const selectVm = select as unknown as { vm: { $emit: (event: string, value: string) => void } }
-  selectVm.vm.$emit('update:modelValue', value)
-  await wrapper.vm.$nextTick()
 }
 
 async function chooseIntelligenceValue(
@@ -62,7 +44,6 @@ describe('CodexComposer', () => {
 
   beforeEach(() => {
     document.body.innerHTML = ''
-    apiPostMock.mockReset()
     vi.stubGlobal('matchMedia', () => ({
       addEventListener: vi.fn(),
       addListener: vi.fn(),
@@ -863,8 +844,7 @@ describe('CodexComposer', () => {
     })
   })
 
-  it('switches the run location from the composer footer', async () => {
-    apiPostMock.mockResolvedValue({ ok: true })
+  it('does not expose a global run location switch for an existing thread', () => {
     const wrapper = mountCodexComposer({
       modelValue: '',
       disabled: false,
@@ -872,33 +852,10 @@ describe('CodexComposer', () => {
       isWorking: false,
       mode: buildMode,
       queuedFollowups: [],
-      state: { id: 'thread-1', turns: [] },
-      workspace: {
-        projects: [],
-        paired_editors: [],
-        active_remote_connection_id: '',
-        remote_connections: [
-          {
-            id: 'remote-1',
-            display_name: 'Build host',
-            ssh_host: 'user@host',
-            ssh_port: 2222,
-            ssh_alias: '',
-            identity_file: '~/.ssh/build',
-            remote_path: '/srv/app',
-            auto_connect: false,
-          },
-        ],
-      },
+      state: { id: 'thread-1', hostId: 'ssh:remote-1', turns: [] },
     })
 
-    expect(wrapper.get('[data-codex-run-location-trigger]').text()).toContain('Local')
-    await selectComposerValue(wrapper, '[data-codex-run-location-trigger]', 'remote-1')
-
-    expect(apiPostMock).toHaveBeenCalledWith(
-      '/api/codex/remote-connections/remote-1/activate',
-      {},
-    )
-    expect(wrapper.emitted('remoteConnectionChanged')).toHaveLength(1)
+    expect(wrapper.find('[data-codex-run-location-trigger]').exists()).toBe(false)
+    expect(wrapper.find('[data-codex-permission-pill]').exists()).toBe(true)
   })
 })

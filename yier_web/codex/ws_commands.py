@@ -74,6 +74,7 @@ class StartThreadCommandStrategy(CodexWsCommandStrategy):
     async def execute(self, context: CodexWsCommandContext) -> dict[str, Any]:
         result = await context.manager.start_thread(
             project_path=_payload_text(context.payload, "project_path") or None,
+            host_id=_payload_text(context.payload, "host_id") or "local",
         )
         await _publish_workspace(context.manager, context.outbox)
         return result
@@ -83,11 +84,18 @@ class ThreadCommandStrategy(CodexWsCommandStrategy):
     def thread_id(self, context: CodexWsCommandContext) -> str:
         return _required_payload_text(context.payload, "thread_id")
 
+    def host_id(self, context: CodexWsCommandContext) -> str | None:
+        return _payload_text(context.payload, "host_id") or None
+
 
 class SubscribeThreadCommandStrategy(ThreadCommandStrategy):
     async def execute(self, context: CodexWsCommandContext) -> dict[str, Any]:
         thread_id = self.thread_id(context)
-        state = await context.manager.subscribe(thread_id, context.outbox)
+        state = await context.manager.subscribe(
+            thread_id,
+            context.outbox,
+            host_id=self.host_id(context),
+        )
         context.subscribed_thread_ids.add(thread_id)
         return {"thread_id": thread_id, "state": state}
 
@@ -225,7 +233,10 @@ class ArchiveThreadCommandStrategy(ThreadCommandStrategy):
 class ForkThreadCommandStrategy(ThreadCommandStrategy):
     async def execute(self, context: CodexWsCommandContext) -> dict[str, Any]:
         thread_id = self.thread_id(context)
-        result = await context.manager.fork_thread(thread_id)
+        result = await context.manager.fork_thread(
+            thread_id,
+            host_id=self.host_id(context),
+        )
         await _publish_workspace(context.manager, context.outbox)
         return result
 
@@ -233,7 +244,10 @@ class ForkThreadCommandStrategy(ThreadCommandStrategy):
 class UnarchiveThreadCommandStrategy(ThreadCommandStrategy):
     async def execute(self, context: CodexWsCommandContext) -> dict[str, Any]:
         thread_id = self.thread_id(context)
-        await context.manager.unarchive_thread(thread_id)
+        await context.manager.unarchive_thread(
+            thread_id,
+            host_id=self.host_id(context),
+        )
         return {"thread_id": thread_id}
 
 
@@ -246,6 +260,7 @@ class ListSkillsCommandStrategy(CodexWsCommandStrategy):
         )
         skills = await context.manager.list_skills(
             thread_id=thread_id,
+            host_id=_payload_text(context.payload, "host_id") or None,
             cwd=cwd,
             force_reload=force_reload,
         )

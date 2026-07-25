@@ -13,6 +13,7 @@ import type {
 } from '../types'
 import { displayPath, isWorkingStatus } from '../lib/format'
 import CodexHostPathPicker from './CodexHostPathPicker.vue'
+import CodexProjectIdentity from './CodexProjectIdentity.vue'
 import CodexRemoteConnections from './CodexRemoteConnections.vue'
 
 const EXPANDED_PROJECTS_STORAGE_KEY = 'yier.codex.sidebar.expanded-projects'
@@ -30,7 +31,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   selectThread: [threadId: string]
-  startThread: [projectPath: string]
+  startThread: [projectPath: string, hostId: string]
   archiveThread: [threadId: string]
   forkThread: [threadId: string]
   renameThread: [threadId: string, name: string]
@@ -233,7 +234,7 @@ function isThreadWorking(thread: CodexNativeSessionSummary) {
 
 function isProjectExpanded(project: ProjectWithKey) {
   if (project.key in userExpandedProjects.value) {
-    return userExpandedProjects.value[project.key]
+    return userExpandedProjects.value[project.key] ?? false
   }
   return project.key === activeProjectKey.value || project.key === latestProjectKey.value
 }
@@ -250,7 +251,7 @@ function selectProjectPath(path: string) {
   projectPath.value = normalizedPath
   pathPickerVisible.value = false
   if (normalizedPath && !props.busy) {
-    emit('startThread', normalizedPath)
+    emit('startThread', normalizedPath, 'local')
   }
 }
 
@@ -260,7 +261,7 @@ function startProjectThread(project: ProjectWithKey) {
     return
   }
   projectPath.value = normalizedProjectPath
-  emit('startThread', normalizedProjectPath)
+  emit('startThread', normalizedProjectPath, projectHostId(project))
 }
 
 function toggleThreadMenu(event: Event, thread: CodexNativeSessionSummary) {
@@ -347,6 +348,7 @@ async function copyThreadId(threadId: string) {
     <CodexRemoteConnections
       :workspace="workspace"
       :busy="busy"
+      @start-thread="emit('startThread', $event.projectPath, $event.hostId)"
       @remote-connection-changed="emit('remoteConnectionChanged')"
     />
 
@@ -366,22 +368,25 @@ async function copyThreadId(threadId: string) {
           class="mb-2 grid gap-1"
         >
           <div
-            class="group/project grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-lg transition hover:bg-white/65 focus-within:bg-white/65"
+            class="group/project relative flex items-center rounded-lg transition hover:bg-white/65 focus-within:bg-white/65"
+            data-codex-project-row
           >
             <button
               type="button"
-              class="grid min-w-0 grid-cols-[1.15rem_minmax(0,1fr)] items-center gap-2 px-2 py-1.5 text-left"
+              class="flex w-full min-w-0 items-center px-2 py-1.5 text-left"
               data-codex-project-toggle
               :aria-expanded="isProjectExpanded(project)"
               @click="toggleProject(project)"
             >
-              <i
-                class="pi text-sm text-[color:var(--app-text-soft)]"
-                :class="isProjectExpanded(project) ? 'pi-folder-open' : 'pi-folder'"
-              ></i>
-              <span class="truncate text-sm font-semibold text-[color:var(--app-text)]">
-                {{ projectTitle(project) }}
-              </span>
+              <CodexProjectIdentity
+                :expanded="isProjectExpanded(project)"
+                :host-id="projectHostId(project)"
+                :workspace="workspace"
+              >
+                <span class="truncate text-sm font-semibold text-[color:var(--app-text)]">
+                  {{ projectTitle(project) }}
+                </span>
+              </CodexProjectIdentity>
             </button>
             <Button
               icon="pi pi-pen-to-square"
@@ -389,7 +394,7 @@ async function copyThreadId(threadId: string) {
               text
               rounded
               size="small"
-              class="mr-1 opacity-0 transition group-hover/project:opacity-100 group-focus-within/project:opacity-100"
+              class="pointer-events-none !absolute right-0 z-10 !h-7 !w-7 !min-w-7 !p-0 opacity-0 transition-opacity group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100"
               :aria-label="`Start Codex thread in ${projectTitle(project)}`"
               data-codex-project-start-thread
               :disabled="busy || !project.project_path.trim()"
@@ -404,14 +409,13 @@ async function copyThreadId(threadId: string) {
             <article
               v-for="thread in project.sessions"
               :key="thread.thread_id"
-              class="group/thread grid grid-cols-[1.15rem_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border px-2 py-1.5 transition"
+              class="group/thread grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border py-1.5 pl-[2.15rem] pr-2 transition"
               data-codex-thread-row
               :class="thread.thread_id === activeThreadId
                 ? 'border-[rgba(21,94,99,0.24)] bg-[rgba(21,94,99,0.08)]'
                 : 'border-transparent hover:border-[rgba(21,94,99,0.24)] hover:bg-[rgba(21,94,99,0.08)] focus-within:border-[rgba(21,94,99,0.24)] focus-within:bg-[rgba(21,94,99,0.08)]'
                 "
             >
-              <span aria-hidden="true"></span>
               <InputText
                 v-if="editingThreadId === thread.thread_id"
                 v-model="renameDraft"

@@ -32,6 +32,7 @@ class FakeCodexSocket implements CodexRealtimeClient {
     source: 'appServer',
   }
   includeForkedThread = false
+  includeRemoteThread = false
   goalObjective = 'Existing goal'
   getThreadGoalResponse: unknown = { goal: null }
   returnDirectGoalResponse = false
@@ -87,6 +88,31 @@ class FakeCodexSocket implements CodexRealtimeClient {
               ...(this.includeForkedThread ? [this.forkedThread] : []),
             ],
           },
+          ...(this.includeRemoteThread
+            ? [
+                {
+                  project: 'remote-app',
+                  project_path: '/srv/app',
+                  host_id: 'ssh:remote-1',
+                  session_count: 1,
+                  sessions: [
+                    {
+                      thread_id: 'thread-remote',
+                      host_id: 'ssh:remote-1',
+                      title: 'Remote thread',
+                      preview: 'remote',
+                      updated_at: 40,
+                      started_at: 30,
+                      status: 'idle',
+                      cwd: '/srv/app',
+                      project: 'remote-app',
+                      project_path: '/srv/app',
+                      source: 'appServer',
+                    },
+                  ],
+                },
+              ]
+            : []),
         ],
         paired_editors: [],
       } as TPayload
@@ -247,6 +273,34 @@ describe('useCodexWorkspace', () => {
         .flatMap((project) => project.sessions)
         .find((thread) => thread.thread_id === 'thread-b')?.status,
     ).toBe('inProgress')
+  })
+
+  it('routes remote thread selection and creation through its host', async () => {
+    const socket = new FakeCodexSocket()
+    socket.includeRemoteThread = true
+    const { workspace } = mountHarness(socket)
+    await flushPromises()
+
+    expect(workspace.activeThreadId.value).toBe('thread-remote')
+    expect(socket.commands.slice(0, 2)).toEqual([
+      { type: 'list_threads', payload: {} },
+      {
+        type: 'subscribe_thread',
+        payload: { thread_id: 'thread-remote', host_id: 'ssh:remote-1' },
+      },
+    ])
+
+    await workspace.startThread('/srv/app', 'ssh:remote-1')
+    await flushPromises()
+
+    expect(socket.commands).toContainEqual({
+      type: 'start_thread',
+      payload: { project_path: '/srv/app', host_id: 'ssh:remote-1' },
+    })
+    expect(socket.commands).toContainEqual({
+      type: 'subscribe_thread',
+      payload: { thread_id: 'thread-created', host_id: 'ssh:remote-1' },
+    })
   })
 
   it('reports active thread loading while a thread subscription is pending', async () => {

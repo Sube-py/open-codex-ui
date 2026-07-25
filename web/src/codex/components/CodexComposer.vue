@@ -1,19 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Popover from 'primevue/popover'
-import Select from 'primevue/select'
 
 import type {
   CodexConversationState,
   CodexPromptSubmission,
   CodexQueuedFollowup,
-  CodexRemoteConnection,
-  CodexRemoteConnectionsResponse,
   CodexSkillSummary,
   CodexThreadGoal,
   CodexThreadGoalStatus,
   CodexWorkMode,
-  CodexWorkspaceResponse,
   JsonRecord,
 } from '../types'
 import { isRecord } from '../lib/format'
@@ -27,7 +23,6 @@ import {
   type CodexSlashCommandDefinition,
   type CodexSlashQueryMatch,
 } from '../lib/slashCommands'
-import { apiPost } from '../../lib/api'
 import CodexHostPathPicker from './CodexHostPathPicker.vue'
 import CodexSlashCommandMenu from './CodexSlashCommandMenu.vue'
 
@@ -45,12 +40,6 @@ type PermissionOption = {
   approvalsReviewer: 'user' | 'guardian_subagent'
   sandboxPolicy: JsonRecord
 }
-type RunLocationOption = {
-  value: string
-  label: string
-  subtitle: string
-  icon: string
-}
 type PopoverRef = {
   toggle: (event: Event) => void
   hide: () => void
@@ -63,7 +52,6 @@ const props = defineProps<{
   mode: CodexWorkMode
   queuedFollowups: CodexQueuedFollowup[]
   state: CodexConversationState | null
-  workspace?: CodexWorkspaceResponse | null
   listSkills?: () => Promise<CodexSkillSummary[]>
 }>()
 
@@ -77,7 +65,6 @@ const emit = defineEmits<{
   setThreadGoal: [objective: string, tokenBudget?: number | null]
   updateThreadGoalStatus: [status: CodexThreadGoalStatus]
   clearThreadGoal: []
-  remoteConnectionChanged: []
   compactThread: []
   forkThread: []
 }>()
@@ -111,8 +98,6 @@ const slashMatch = ref<CodexSlashQueryMatch | null>(null)
 const slashMenuSuppressed = ref(false)
 const statusPanelOpen = ref(false)
 const selectedPermissionMode = ref<PermissionMode>('full')
-const remoteSwitchingId = ref<string | null>(null)
-const remoteSwitchError = ref('')
 const todoExpanded = ref(false)
 
 const permissionOptions: PermissionOption[] = [
@@ -256,29 +241,6 @@ const goalDetail = computed(() => goalProgressText(threadGoal.value))
 const canResumeGoal = computed(() =>
   ['paused', 'blocked', 'usageLimited'].includes(goalStatus.value),
 )
-const remoteConnections = computed(() => props.workspace?.remote_connections ?? [])
-const activeRemoteConnectionId = computed(() => props.workspace?.active_remote_connection_id ?? '')
-const activeRemoteConnection = computed(() =>
-  remoteConnections.value.find((connection) => connection.id === activeRemoteConnectionId.value),
-)
-const activeRunLocationLabel = computed(() =>
-  activeRemoteConnection.value ? remoteTitle(activeRemoteConnection.value) : 'Local',
-)
-const showRunLocationPicker = computed(() => remoteConnections.value.length > 0)
-const runLocationOptions = computed<RunLocationOption[]>(() => [
-  {
-    value: '',
-    label: 'Local',
-    subtitle: 'Work locally',
-    icon: 'pi pi-desktop',
-  },
-  ...remoteConnections.value.map((connection) => ({
-    value: connection.id,
-    label: remoteTitle(connection),
-    subtitle: remoteSubtitle(connection),
-    icon: 'pi pi-server',
-  })),
-])
 const latestTodoList = computed(() => latestTodoListItem(props.state))
 const latestTodoItems = computed(() => todoItems(latestTodoList.value))
 const latestTodoSummary = computed(() => todoSummary(latestTodoList.value))
@@ -583,13 +545,6 @@ function choosePermissionMode(mode: PermissionMode) {
   permissionPopover.value?.hide()
 }
 
-function chooseRunLocation(connectionId: string) {
-  if (connectionId === activeRemoteConnectionId.value) {
-    return
-  }
-  void activateRunLocation(connectionId)
-}
-
 function toggleIntelligenceMenu(event: Event) {
   if (props.busy || props.disabled) {
     return
@@ -604,25 +559,6 @@ function togglePermissionMenu(event: Event) {
   }
   addMenuOpen.value = false
   permissionPopover.value?.toggle(event)
-}
-
-async function activateRunLocation(connectionId: string) {
-  if (props.busy || props.disabled || remoteSwitchingId.value !== null) {
-    return
-  }
-  remoteSwitchError.value = ''
-  remoteSwitchingId.value = connectionId || 'local'
-  try {
-    const path = connectionId
-      ? `/api/codex/remote-connections/${encodeURIComponent(connectionId)}/activate`
-      : '/api/codex/remote-connections/activate-local'
-    await apiPost<CodexRemoteConnectionsResponse>(path, {})
-    emit('remoteConnectionChanged')
-  } catch (error) {
-    remoteSwitchError.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    remoteSwitchingId.value = null
-  }
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -1110,16 +1046,6 @@ function steerFollowup(followup: CodexQueuedFollowup, index: number) {
   }
   emit('steerPrompt', prompt)
   emit('removeFollowup', followupId(followup, index))
-}
-
-function remoteTitle(connection: CodexRemoteConnection) {
-  return connection.display_name || connection.ssh_alias || connection.ssh_host
-}
-
-function remoteSubtitle(connection: CodexRemoteConnection) {
-  const target = connection.ssh_alias || connection.ssh_host
-  const port = connection.ssh_port ? `:${connection.ssh_port}` : ''
-  return `${target}${port}`
 }
 
 function optionItems(values: string[]) {
@@ -1804,54 +1730,6 @@ function goalProgressText(goal: CodexThreadGoal | null) {
             </div>
 
             <div
-              v-if="showRunLocationPicker"
-              class="shrink-0"
-              data-codex-run-location-picker
-            >
-              <Select
-                :model-value="activeRemoteConnectionId"
-                :options="runLocationOptions"
-                option-label="label"
-                option-value="value"
-                data-key="value"
-                append-to="body"
-                size="small"
-                checkmark
-                highlight-on-select
-                class="codex-composer-select codex-composer-select-compact"
-                :disabled="busy || disabled || remoteSwitchingId !== null"
-                aria-label="Select where to run the task"
-                overlay-class="codex-composer-select-overlay"
-                data-codex-run-location-trigger
-                @update:model-value="chooseRunLocation"
-              >
-                <template #value="{ value }">
-                  <span class="inline-flex min-w-0 items-center gap-1.5">
-                    <i :class="value ? 'pi pi-server' : 'pi pi-desktop'" class="text-[0.7rem] text-[color:var(--app-text-soft)] max-sm:text-[0.62rem]"></i>
-                    <span class="min-w-0 truncate">{{ activeRunLocationLabel }}</span>
-                  </span>
-                </template>
-                <template #option="{ option }">
-                  <span class="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-2" :data-codex-run-location-remote="option.value || undefined" :data-codex-run-location-local="option.value ? undefined : ''">
-                    <i :class="option.icon" class="text-[0.68rem] text-[color:var(--app-text-soft)]"></i>
-                    <span class="min-w-0">
-                      <span class="block truncate text-sm font-semibold text-[color:var(--app-text)]">{{ option.label }}</span>
-                      <span class="block truncate text-[0.68rem] font-normal text-[color:var(--app-text-soft)]">{{ option.subtitle }}</span>
-                    </span>
-                  </span>
-                </template>
-              </Select>
-              <p
-                v-if="remoteSwitchError"
-                class="m-0 line-clamp-1 px-1 pt-1 text-[0.68rem] text-red-700"
-                data-codex-run-location-error
-              >
-                {{ remoteSwitchError }}
-              </p>
-            </div>
-
-            <div
-              v-else
               class="relative shrink-0"
               data-codex-permission-pill
             >

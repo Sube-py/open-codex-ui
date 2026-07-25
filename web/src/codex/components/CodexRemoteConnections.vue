@@ -3,16 +3,19 @@ import { computed, ref } from 'vue'
 
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
+import SelectButton from 'primevue/selectbutton'
 
 import { apiPost, apiPut } from '../../lib/api'
 import type {
   CodexRemoteConnection,
-  CodexRemoteConnectionChatGptLoginResponse,
   CodexRemoteConnectionPayload,
   CodexRemoteConnectionResponse,
   CodexRemoteConnectionTestResponse,
   CodexWorkspaceResponse,
 } from '../types'
+import CodexHostPathPicker from './CodexHostPathPicker.vue'
+
+type RemoteConnectionMode = 'direct' | 'alias'
 
 const props = defineProps<{
   workspace: CodexWorkspaceResponse
@@ -21,13 +24,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   remoteConnectionChanged: []
+  startThread: [payload: { projectPath: string; hostId: string }]
 }>()
 
 const remoteDialogVisible = ref(false)
+const remoteConnectionMode = ref<RemoteConnectionMode>('direct')
+const identityFilePickerVisible = ref(false)
 const remoteError = ref('')
 const remoteTestingId = ref('')
 const remoteInstallingId = ref('')
-const remoteChatGptLoginId = ref('')
 const remoteSaving = ref(false)
 const remoteEditingId = ref('')
 const remoteDraft = ref<CodexRemoteConnectionPayload>(emptyRemoteDraft())
@@ -35,23 +40,22 @@ const remotePortDraft = ref('')
 const apiKeyDialogConnection = ref<CodexRemoteConnection | null>(null)
 const apiKeyDraft = ref('')
 const apiKeySaving = ref(false)
+const remoteConnectionModeOptions = [
+  { label: 'Direct SSH', value: 'direct' },
+  { label: 'SSH config alias', value: 'alias' },
+]
 
 const remoteConnections = computed(() => props.workspace.remote_connections ?? [])
 const remoteStatuses = computed(() => props.workspace.remote_connection_statuses ?? {})
-const activeRemoteConnectionId = computed(
-  () => props.workspace.active_remote_connection_id ?? '',
+const identityFilePickerPath = computed(() =>
+  parentDirectory(remoteDraft.value.identity_file) || '~/.ssh',
 )
-const activeRemoteLabel = computed(() => {
-  const remote = remoteConnections.value.find(
-    (connection) => connection.id === activeRemoteConnectionId.value,
-  )
-  return remote?.display_name || 'Local'
-})
 
 function emptyRemoteDraft(): CodexRemoteConnectionPayload {
   return {
     display_name: '',
     ssh_host: '',
+    ssh_username: '',
     ssh_port: null,
     ssh_alias: '',
     identity_file: '',
@@ -65,15 +69,21 @@ function remoteTitle(connection: CodexRemoteConnection) {
 }
 
 function remoteSubtitle(connection: CodexRemoteConnection) {
-  const target = connection.ssh_alias || connection.ssh_host
-  const port = connection.ssh_port ? `:${connection.ssh_port}` : ''
+  const target = connection.ssh_alias || directTarget(connection)
+  const port = connection.ssh_alias || !connection.ssh_port ? '' : `:${connection.ssh_port}`
   return `${target}${port} · ${connection.remote_path || '~'}`
+}
+
+function directTarget(connection: Pick<CodexRemoteConnection, 'ssh_host' | 'ssh_username'>) {
+  return connection.ssh_username
+    ? `${connection.ssh_username}@${connection.ssh_host}`
+    : connection.ssh_host
 }
 
 function remoteStatus(connection: CodexRemoteConnection) {
   return remoteStatuses.value[connection.id] ?? {
-    status: connection.id === activeRemoteConnectionId.value ? 'connecting' : 'disconnected',
-    detail: connection.id === activeRemoteConnectionId.value ? 'Connecting' : 'Disconnected',
+    status: 'disconnected',
+    detail: 'Not connected yet',
   }
 }
 
@@ -107,6 +117,7 @@ function remoteStatusClass(connection: CodexRemoteConnection) {
 
 function openAddRemoteDialog() {
   remoteEditingId.value = ''
+  remoteConnectionMode.value = 'direct'
   remoteDraft.value = emptyRemoteDraft()
   remotePortDraft.value = ''
   remoteError.value = ''
@@ -115,9 +126,11 @@ function openAddRemoteDialog() {
 
 function openEditRemoteDialog(connection: CodexRemoteConnection) {
   remoteEditingId.value = connection.id
+  remoteConnectionMode.value = connection.ssh_alias ? 'alias' : 'direct'
   remoteDraft.value = {
     display_name: connection.display_name,
     ssh_host: connection.ssh_host,
+    ssh_username: connection.ssh_username ?? '',
     ssh_port: connection.ssh_port ?? null,
     ssh_alias: connection.ssh_alias,
     identity_file: connection.identity_file,
@@ -129,10 +142,47 @@ function openEditRemoteDialog(connection: CodexRemoteConnection) {
   remoteDialogVisible.value = true
 }
 
+function setRemoteConnectionMode(mode: RemoteConnectionMode | null) {
+  if (!mode) {
+    return
+  }
+  remoteConnectionMode.value = mode
+  if (mode === 'alias') {
+    remoteDraft.value = {
+      ...remoteDraft.value,
+      ssh_host: '',
+      ssh_username: '',
+      ssh_port: null,
+      identity_file: '',
+    }
+    remotePortDraft.value = ''
+    return
+  }
+  remoteDraft.value = { ...remoteDraft.value, ssh_alias: '' }
+}
+
 function closeRemoteDialog() {
   remoteDialogVisible.value = false
+  identityFilePickerVisible.value = false
   remoteEditingId.value = ''
   remoteError.value = ''
+}
+
+function parentDirectory(path: string) {
+  const normalizedPath = path.trim().replace(/\\/g, '/')
+  const separatorIndex = normalizedPath.lastIndexOf('/')
+  if (separatorIndex < 0) {
+    return ''
+  }
+  if (separatorIndex === 0) {
+    return '/'
+  }
+  return normalizedPath.slice(0, separatorIndex)
+}
+
+function selectIdentityFile(path: string) {
+  remoteDraft.value.identity_file = path
+  identityFilePickerVisible.value = false
 }
 
 function openApiKeyDialog(connection: CodexRemoteConnection) {
@@ -148,16 +198,27 @@ function closeApiKeyDialog() {
 
 async function saveRemoteConnection() {
   remoteError.value = ''
+  const isAliasMode = remoteConnectionMode.value === 'alias'
   const payload = {
     ...remoteDraft.value,
-    ssh_port: remotePortDraft.value.trim() ? Number(remotePortDraft.value.trim()) : null,
+    ssh_host: isAliasMode ? '' : remoteDraft.value.ssh_host,
+    ssh_username: isAliasMode ? '' : remoteDraft.value.ssh_username,
+    ssh_port: isAliasMode
+      ? null
+      : remotePortDraft.value.trim() ? Number(remotePortDraft.value.trim()) : null,
+    ssh_alias: isAliasMode ? remoteDraft.value.ssh_alias : '',
+    identity_file: isAliasMode ? '' : remoteDraft.value.identity_file,
   }
   if (payload.ssh_port !== null && !Number.isInteger(payload.ssh_port)) {
     remoteError.value = 'SSH port must be an integer.'
     return
   }
-  if (!payload.ssh_alias.trim() && !payload.ssh_host.trim()) {
-    remoteError.value = 'Hostname or alias is required.'
+  if (isAliasMode && !payload.ssh_alias.trim()) {
+    remoteError.value = 'SSH config alias is required.'
+    return
+  }
+  if (!isAliasMode && !payload.ssh_host.trim()) {
+    remoteError.value = 'Host is required for a direct SSH connection.'
     return
   }
   remoteSaving.value = true
@@ -179,20 +240,11 @@ async function saveRemoteConnection() {
   }
 }
 
-async function activateRemoteConnection(connectionId: string) {
-  if (props.busy) {
-    return
-  }
-  remoteError.value = ''
-  try {
-    const path = connectionId
-      ? `/api/codex/remote-connections/${encodeURIComponent(connectionId)}/activate`
-      : '/api/codex/remote-connections/activate-local'
-    await apiPost(path, {})
-    emit('remoteConnectionChanged')
-  } catch (error) {
-    remoteError.value = error instanceof Error ? error.message : String(error)
-  }
+function startRemoteThread(connection: CodexRemoteConnection) {
+  emit('startThread', {
+    projectPath: connection.remote_path || '~',
+    hostId: `ssh:${connection.id}`,
+  })
 }
 
 async function testRemoteConnection(connection: CodexRemoteConnection) {
@@ -265,30 +317,6 @@ async function loginRemoteApiKey() {
   }
 }
 
-async function loginRemoteChatGpt(connection: CodexRemoteConnection) {
-  remoteChatGptLoginId.value = connection.id
-  remoteError.value = ''
-  try {
-    const result = await apiPost<CodexRemoteConnectionChatGptLoginResponse>(
-      `/api/codex/remote-connections/${encodeURIComponent(connection.id)}/login-chatgpt`,
-      {},
-    )
-    if (!result.ok) {
-      remoteError.value = result.detail
-      return
-    }
-    if (result.auth_url) {
-      window.open(result.auth_url, '_blank', 'noopener,noreferrer')
-    }
-    remoteError.value = 'Complete ChatGPT login in the browser.'
-    emit('remoteConnectionChanged')
-  } catch (error) {
-    remoteError.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    remoteChatGptLoginId.value = ''
-  }
-}
-
 async function deleteRemoteConnection(connection: CodexRemoteConnection) {
   remoteError.value = ''
   try {
@@ -308,10 +336,10 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
     <div class="mb-2 flex items-center justify-between gap-2">
       <div class="min-w-0">
         <p class="m-0 truncate text-xs font-semibold uppercase tracking-wide text-[color:var(--app-text-soft)]">
-          Environment
+          SSH connections
         </p>
         <p class="m-0 truncate text-sm font-semibold text-[color:var(--app-text)]">
-          {{ activeRemoteLabel }}
+          {{ remoteConnections.length ? `${remoteConnections.length} configured` : 'Local only' }}
         </p>
       </div>
       <Button
@@ -328,33 +356,15 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
     </div>
 
     <div class="grid gap-1">
-      <button
-        type="button"
-        class="grid grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition hover:bg-white/65 disabled:cursor-wait disabled:opacity-60"
-        data-codex-local-remote
-        :class="!activeRemoteConnectionId ? 'font-semibold text-[color:var(--app-text)]' : 'text-[color:var(--app-text-soft)]'"
-        :disabled="busy"
-        @click="activateRemoteConnection('')"
-      >
-        <i class="pi pi-desktop text-[0.72rem]"></i>
-        <span class="truncate">Local</span>
-      </button>
-
       <div
         v-for="connection in remoteConnections"
         :key="connection.id"
         class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md px-2 py-1.5 transition hover:bg-white/65"
         data-codex-remote-row
       >
-        <button
-          type="button"
-          class="min-w-0 text-left disabled:cursor-wait disabled:opacity-60"
-          :disabled="busy"
-          @click="activateRemoteConnection(connection.id)"
-        >
+        <div class="min-w-0">
           <span
-            class="block truncate text-sm"
-            :class="connection.id === activeRemoteConnectionId ? 'font-semibold text-[color:var(--app-text)]' : 'font-medium text-[color:var(--app-text-soft)]'"
+            class="block truncate text-sm font-semibold text-[color:var(--app-text)]"
           >
             {{ remoteTitle(connection) }}
           </span>
@@ -369,8 +379,21 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
           >
             {{ remoteStatusLabel(connection) }}
           </span>
-        </button>
+        </div>
         <div class="flex items-center gap-0.5">
+          <Button
+            icon="pi pi-pen-to-square"
+            severity="secondary"
+            text
+            rounded
+            size="small"
+            class="!h-6 !w-6 !min-w-6 !p-0 !text-[0.68rem]"
+            :aria-label="`Start thread on ${remoteTitle(connection)}`"
+            title="Start thread on this host"
+            data-codex-start-remote-thread
+            :disabled="busy"
+            @click.stop="startRemoteThread(connection)"
+          />
           <Button
             icon="pi pi-refresh"
             severity="secondary"
@@ -407,19 +430,6 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
             data-codex-login-api-key-remote
             :disabled="busy"
             @click.stop="openApiKeyDialog(connection)"
-          />
-          <Button
-            icon="pi pi-sign-in"
-            severity="secondary"
-            text
-            rounded
-            size="small"
-            class="!h-6 !w-6 !min-w-6 !p-0 !text-[0.68rem]"
-            aria-label="Sign in with ChatGPT"
-            data-codex-login-chatgpt-remote
-            :loading="remoteChatGptLoginId === connection.id"
-            :disabled="busy"
-            @click.stop="loginRemoteChatGpt(connection)"
           />
           <Button
             icon="pi pi-verified"
@@ -499,35 +509,74 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
           data-codex-remote-display-name
         />
       </label>
-      <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
-        Hostname
-        <InputText
-          v-model="remoteDraft.ssh_host"
-          placeholder="host.com or user@host.com"
-          data-codex-remote-host
+      <div class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
+        <span>Connection method</span>
+        <SelectButton
+          :model-value="remoteConnectionMode"
+          :options="remoteConnectionModeOptions"
+          option-label="label"
+          option-value="value"
+          :allow-empty="false"
+          fluid
+          data-codex-remote-connection-mode
+          @update:model-value="setRemoteConnectionMode"
         />
-      </label>
-      <div class="grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
-        <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
-          Alias
-          <InputText
-            v-model="remoteDraft.ssh_alias"
-            data-codex-remote-alias
-          />
-        </label>
-        <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
-          Port
-          <InputText
-            v-model="remotePortDraft"
-            data-codex-remote-port
-          />
-        </label>
       </div>
-      <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
-        Identity file
+      <template v-if="remoteConnectionMode === 'direct'">
+        <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
+          Host
+          <InputText
+            v-model="remoteDraft.ssh_host"
+            placeholder="100.64.0.93 or server.example.com"
+            data-codex-remote-host
+          />
+        </label>
+        <div class="grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
+          <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
+            Username
+            <InputText
+              v-model="remoteDraft.ssh_username"
+              placeholder="optional"
+              data-codex-remote-username
+            />
+          </label>
+          <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
+            Port
+            <InputText
+              v-model="remotePortDraft"
+              placeholder="22"
+              data-codex-remote-port
+            />
+          </label>
+        </div>
+        <div class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
+          <label for="codex-remote-identity">Identity file</label>
+          <span class="flex min-w-0 gap-2">
+            <InputText
+              id="codex-remote-identity"
+              v-model="remoteDraft.identity_file"
+              class="min-w-0 flex-1"
+              placeholder="~/.ssh/id_ed25519"
+              data-codex-remote-identity
+            />
+            <Button
+              icon="pi pi-folder-open"
+              severity="secondary"
+              outlined
+              aria-label="Choose SSH identity file"
+              title="Choose SSH identity file"
+              data-codex-browse-remote-identity
+              @click="identityFilePickerVisible = true"
+            />
+          </span>
+        </div>
+      </template>
+      <label v-else class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
+        SSH config alias
         <InputText
-          v-model="remoteDraft.identity_file"
-          data-codex-remote-identity
+          v-model="remoteDraft.ssh_alias"
+          placeholder="Host name from ~/.ssh/config"
+          data-codex-remote-alias
         />
       </label>
       <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
@@ -537,16 +586,6 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
           data-codex-remote-path
         />
       </label>
-      <label class="flex items-center gap-2 text-sm font-medium text-[color:var(--app-text)]">
-        <input
-          v-model="remoteDraft.auto_connect"
-          type="checkbox"
-          class="h-4 w-4"
-          data-codex-remote-auto-connect
-        >
-        Auto connect
-      </label>
-
       <p
         v-if="remoteError"
         class="m-0 text-sm text-red-700"
@@ -571,6 +610,17 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
       </footer>
     </section>
   </div>
+
+  <CodexHostPathPicker
+    v-model:visible="identityFilePickerVisible"
+    title="Choose SSH identity file"
+    :selected-path="identityFilePickerPath"
+    :disabled="remoteSaving"
+    allow-files
+    :allow-current-folder="false"
+    data-codex-identity-file-picker
+    @select="selectIdentityFile"
+  />
 
   <div
     v-if="apiKeyDialogConnection"

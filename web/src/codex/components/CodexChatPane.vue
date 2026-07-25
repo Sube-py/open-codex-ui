@@ -14,7 +14,6 @@ import type {
   CodexSocketStatus,
   CodexThreadGoalStatus,
   CodexWorkMode,
-  CodexWorkspaceResponse,
   JsonRecord,
 } from '../types'
 
@@ -27,7 +26,6 @@ const props = defineProps<{
   activeStatus: string
   activeMode: CodexWorkMode
   queuedFollowups: CodexQueuedFollowup[]
-  workspace?: CodexWorkspaceResponse | null
   socketStatus: CodexSocketStatus
   errorMessage?: string
   successMessage?: string
@@ -59,7 +57,6 @@ const emit = defineEmits<{
   removeFollowup: [messageId: string]
   forkThread: [threadId: string]
   copyError: [message: string]
-  remoteConnectionChanged: []
 }>()
 
 function submitUserInputResponse(requestId: string, response: JsonRecord) {
@@ -175,7 +172,6 @@ function stringValue(value: unknown) {
       :mode="activeMode"
       :queued-followups="queuedFollowups"
       :state="activeThreadState"
-      :workspace="workspace"
       :list-skills="listSkills"
       @send-prompt="emit('sendPrompt', $event)"
       @steer-prompt="emit('steerPrompt', $event)"
@@ -188,7 +184,6 @@ function stringValue(value: unknown) {
       @clear-thread-goal="emit('clearThreadGoal')"
       @compact-thread="emit('compactThread')"
       @fork-thread="activeThreadId ? emit('forkThread', activeThreadId) : undefined"
-      @remote-connection-changed="emit('remoteConnectionChanged')"
     />
   </section>
 </template>

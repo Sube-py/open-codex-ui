@@ -48,6 +48,7 @@ export interface CodexRemoteConnection {
   id: string
   display_name: string
   ssh_host: string
+  ssh_username?: string
   ssh_port?: number | null
   ssh_alias: string
   identity_file: string
@@ -69,6 +70,7 @@ export interface CodexRemoteConnectionStatus {
 export interface CodexRemoteConnectionPayload {
   display_name: string
   ssh_host: string
+  ssh_username: string
   ssh_port?: number | null
   ssh_alias: string
   identity_file: string
@@ -88,13 +90,6 @@ export interface CodexRemoteConnectionResponse {
 
 export interface CodexRemoteConnectionTestResponse {
   ok: boolean
-  detail: string
-}
-
-export interface CodexRemoteConnectionChatGptLoginResponse {
-  ok: boolean
-  auth_url: string
-  login_id: string
   detail: string
 }
 
@@ -233,6 +228,7 @@ export interface CodexConversationState extends JsonRecord {
 
 export interface CodexThreadStatePayload {
   thread_id: string
+  host_id?: string
   state: CodexConversationState | null
   stream_role?: JsonRecord | null
   queued_followups?: CodexQueuedFollowup[]
@@ -240,11 +236,13 @@ export interface CodexThreadStatePayload {
 
 export interface CodexThreadCreateResponse {
   thread_id: string
+  host_id?: string
   state?: CodexConversationState | null
 }
 
 export interface CodexThreadForkResponse {
   thread_id: string
+  host_id?: string
   state?: CodexConversationState | null
 }
 

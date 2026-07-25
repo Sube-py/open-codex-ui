@@ -115,10 +115,17 @@ function mountSidebar(props: Partial<InstanceType<typeof CodexSidebar>['$props']
       plugins: [PrimeVue],
       stubs: {
         CodexHostPathPicker: {
-          props: ['visible', 'selectedPath', 'disabled'],
+          props: [
+            'visible',
+            'selectedPath',
+            'disabled',
+            'title',
+            'allowFiles',
+            'allowCurrentFolder',
+          ],
           emits: ['update:visible', 'select'],
           template:
-            '<div data-codex-host-path-picker-stub><button data-codex-picker-select @click="$emit(\'select\', \'/tmp/selected\')">Select</button></div>',
+            '<div data-codex-host-path-picker-stub :data-selected-path="selectedPath"><button v-if="title" data-codex-identity-picker-select @click="$emit(\'select\', \'/home/test/.ssh/id_ed25519\')">Select identity</button><button v-else data-codex-picker-select @click="$emit(\'select\', \'/tmp/selected\')">Select</button></div>',
         },
         Menu: MenuStub,
       },
@@ -186,7 +193,7 @@ describe('CodexSidebar', () => {
 
     await wrapper.get('[data-codex-picker-select]').trigger('click')
 
-    expect(wrapper.emitted('startThread')).toEqual([['/tmp/selected']])
+    expect(wrapper.emitted('startThread')).toEqual([['/tmp/selected', 'local']])
   })
 
   it('starts new threads from project row actions', async () => {
@@ -194,10 +201,10 @@ describe('CodexSidebar', () => {
 
     await wrapper.findAll('[data-codex-project-start-thread]')[0]!.trigger('click')
 
-    expect(wrapper.emitted('startThread')).toEqual([['/tmp/alpha']])
+    expect(wrapper.emitted('startThread')).toEqual([['/tmp/alpha', 'local']])
   })
 
-  it('creates, tests, and activates SSH remote connections', async () => {
+  it('creates and manages SSH remote connections without switching the thread list', async () => {
     apiPostMock
       .mockResolvedValueOnce({
         connection: {
@@ -215,14 +222,6 @@ describe('CodexSidebar', () => {
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({ ok: true, detail: 'installed' })
       .mockResolvedValueOnce({ ok: true, detail: 'Signed in with apiKey.' })
-      .mockResolvedValueOnce({
-        ok: true,
-        auth_url: 'https://chatgpt.com/login',
-        login_id: 'login-1',
-        detail: '',
-      })
-      .mockResolvedValueOnce({ ok: true })
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
 
     const wrapper = mountSidebar({
       workspace: {
@@ -247,21 +246,34 @@ describe('CodexSidebar', () => {
 
     await wrapper.get('[data-codex-add-remote]').trigger('click')
     await wrapper.get('[data-codex-remote-display-name]').setValue('Build host')
-    await wrapper.get('[data-codex-remote-host]').setValue('user@host')
+    await wrapper.get('[data-codex-remote-host]').setValue('host')
+    await wrapper.get('[data-codex-remote-username]').setValue('user')
     await wrapper.get('[data-codex-remote-port]').setValue('2222')
-    await wrapper.get('[data-codex-remote-identity]').setValue('~/.ssh/build')
+    await wrapper.get('[data-codex-browse-remote-identity]').trigger('click')
+
+    const identityPicker = wrapper
+      .findAll('[data-codex-host-path-picker-stub]')
+      .find((picker) => picker.find('[data-codex-identity-picker-select]').exists())
+    expect(identityPicker).toBeDefined()
+    expect(identityPicker?.attributes('data-selected-path')).toBe('~/.ssh')
+
+    await identityPicker!.get('[data-codex-identity-picker-select]').trigger('click')
+    expect(wrapper.get('[data-codex-remote-identity]').element).toHaveProperty(
+      'value',
+      '/home/test/.ssh/id_ed25519',
+    )
     await wrapper.get('[data-codex-remote-path]').setValue('/srv/app')
-    await wrapper.get('[data-codex-remote-auto-connect]').setValue(true)
     await wrapper.get('[data-codex-save-remote]').trigger('click')
 
     expect(apiPostMock).toHaveBeenNthCalledWith(1, '/api/codex/remote-connections', {
       display_name: 'Build host',
-      ssh_host: 'user@host',
+      ssh_host: 'host',
+      ssh_username: 'user',
       ssh_port: 2222,
       ssh_alias: '',
-      identity_file: '~/.ssh/build',
+      identity_file: '/home/test/.ssh/id_ed25519',
       remote_path: '/srv/app',
-      auto_connect: true,
+      auto_connect: false,
     })
     expect(wrapper.emitted('remoteConnectionChanged')).toHaveLength(1)
 
@@ -299,24 +311,12 @@ describe('CodexSidebar', () => {
       { apiKey: 'sk-test' },
     )
 
-    await wrapper.get('[data-codex-login-chatgpt-remote]').trigger('click')
-    expect(apiPostMock).toHaveBeenNthCalledWith(
-      6,
-      '/api/codex/remote-connections/remote-1/login-chatgpt',
-      {},
-    )
-    expect(openSpy).toHaveBeenCalledWith(
-      'https://chatgpt.com/login',
-      '_blank',
-      'noopener,noreferrer',
-    )
-
-    await wrapper.get('[data-codex-remote-row] button').trigger('click')
-    expect(apiPostMock).toHaveBeenNthCalledWith(
-      7,
-      '/api/codex/remote-connections/remote-1/activate',
-      {},
-    )
+    await wrapper.get('[data-codex-start-remote-thread]').trigger('click')
+    expect(wrapper.emitted('startThread')).toContainEqual([
+      '/srv/app',
+      'ssh:remote-1',
+    ])
+    expect(apiPostMock).toHaveBeenCalledTimes(5)
   })
 
   it('updates SSH remote connections from the edit dialog', async () => {
@@ -351,6 +351,11 @@ describe('CodexSidebar', () => {
     })
 
     await wrapper.get('[data-codex-edit-remote]').trigger('click')
+    const modeButtons = wrapper
+      .get('[data-codex-remote-connection-mode]')
+      .findAll('button')
+    expect(modeButtons[1]?.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-codex-remote-host]').exists()).toBe(false)
     await wrapper.get('[data-codex-remote-display-name]').setValue('Edited')
     await wrapper.get('[data-codex-save-remote]').trigger('click')
 
@@ -358,7 +363,8 @@ describe('CodexSidebar', () => {
       '/api/codex/remote-connections/remote-1',
       {
         display_name: 'Edited',
-        ssh_host: 'user@host',
+        ssh_host: '',
+        ssh_username: '',
         ssh_port: null,
         ssh_alias: 'prod',
         identity_file: '',
@@ -426,11 +432,56 @@ describe('CodexSidebar', () => {
           },
         ],
         paired_editors: [],
+        remote_connections: [
+          {
+            id: 'build',
+            display_name: 'Build host',
+            ssh_host: 'build.example.com',
+            ssh_port: 22,
+            ssh_alias: 'build-box',
+            identity_file: '~/.ssh/id_ed25519',
+            remote_path: '/srv/app',
+            auto_connect: false,
+          },
+        ],
+        remote_connection_statuses: {
+          build: { status: 'connected', detail: 'Codex ready' },
+        },
       },
     })
 
     expect(wrapper.findAll('[data-codex-project-toggle]')).toHaveLength(2)
     expect(wrapper.text()).toContain('Remote work')
+    expect(wrapper.find('[data-codex-thread-host]').exists()).toBe(false)
+
+    const projectIcons = wrapper.findAll('[data-codex-project-source-icon]')
+    expect(projectIcons.map((item) => item.attributes('data-source'))).toEqual([
+      'remote',
+      'local',
+    ])
+    expect(projectIcons[0]?.find('svg').exists()).toBe(true)
+    expect(wrapper.get('[data-codex-project-alias]').text()).toBe('build-box')
+    expect(wrapper.get('[data-codex-project-status]').attributes()).toMatchObject({
+      'aria-label': 'build-box: Connected - Codex ready',
+      'data-status': 'connected',
+    })
+    expect(wrapper.get('[data-codex-project-remote-meta]').classes()).toEqual(
+      expect.arrayContaining([
+        'group-hover/project:hidden',
+        'group-focus-within/project:hidden',
+      ]),
+    )
+    expect(wrapper.get('[data-codex-project-row]').classes()).toContain('relative')
+    expect(wrapper.get('[data-codex-project-action-spacer]').classes()).toEqual(
+      expect.arrayContaining([
+        'hidden',
+        'w-7',
+        'group-hover/project:block',
+      ]),
+    )
+    expect(wrapper.findAll('[data-codex-project-start-thread]')[0]!.classes()).toEqual(
+      expect.arrayContaining(['!absolute', 'right-0', 'group-hover/project:opacity-100']),
+    )
 
     await wrapper
       .findAll('[data-codex-thread-name]')

@@ -143,10 +143,6 @@ class AppConfigService:
         connections.append(connection)
         settings.codex.remote_connections = self._normalize_remote_connections(connections)
         connection = settings.codex.remote_connections[-1]
-        if payload.auto_connect:
-            settings.codex.active_remote_connection_id = connection.id
-        elif settings.codex.active_remote_connection_id == connection.id:
-            settings.codex.active_remote_connection_id = ""
         self._write_json(self.settings_path, settings.model_dump())
         return connection
 
@@ -265,14 +261,22 @@ class AppConfigService:
         *,
         connection_id: str | None,
     ) -> CodexRemoteConnection:
-        if not payload.ssh_alias and not payload.ssh_host:
-            raise ValueError("ssh_host or ssh_alias is required.")
+        if payload.ssh_alias:
+            return CodexRemoteConnection(
+                id=connection_id or "",
+                display_name=payload.display_name,
+                ssh_alias=payload.ssh_alias,
+                remote_path=payload.remote_path,
+                auto_connect=payload.auto_connect,
+            ).normalized()
+        if not payload.ssh_host:
+            raise ValueError("ssh_host is required for a direct SSH connection.")
         return CodexRemoteConnection(
             id=connection_id or "",
             display_name=payload.display_name,
             ssh_host=payload.ssh_host,
+            ssh_username=payload.ssh_username,
             ssh_port=payload.ssh_port,
-            ssh_alias=payload.ssh_alias,
             identity_file=payload.identity_file,
             remote_path=payload.remote_path,
             auto_connect=payload.auto_connect,

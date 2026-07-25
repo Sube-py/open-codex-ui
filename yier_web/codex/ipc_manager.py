@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import shlex
 import tomllib
-import uuid
 from typing import Callable
 
 from codex_ipc import (
@@ -49,7 +48,6 @@ from yier_web.schemas import (
     CodexNativeSessionSummary,
     CodexProjectGroup,
     CodexRemoteConnection,
-    CodexRemoteConnectionChatGptLoginResponse,
     CodexRemoteConnectionStatus,
     CodexRemoteConnectionTestResponse,
     CodexRemoteConnectionsResponse,
@@ -183,11 +181,11 @@ class CodexIpcManager:
         self.event_broker = event_broker
         self._session_factory = session_factory
         self._threads: dict[str, ManagedCodexThread] = {}
+        self._thread_hosts: dict[str, str] = {}
         self._session_events = CodexSessionEventHub()
         self._session_events.add_sink(self._publish_session_event_to_broker)
-        self._workspace_session: CodexIpcSession | None = None
+        self._workspace_sessions: dict[str, CodexIpcSession] = {}
         self._remote_connection_statuses: dict[str, CodexRemoteConnectionStatus] = {}
-        self._remote_login_forwards: dict[str, asyncio.subprocess.Process] = {}
         self._lock = asyncio.Lock()
         self._started = False
 
@@ -204,36 +202,66 @@ class CodexIpcManager:
         self._threads.clear()
         self._session_events.clear_thread_subscribers()
 
-        if self._workspace_session is not None:
-            await self._workspace_session.stop()
-            self._workspace_session = None
-        await self._stop_all_remote_login_forwards()
+        for session in list(self._workspace_sessions.values()):
+            await session.stop()
+        self._workspace_sessions.clear()
 
     async def workspace(self) -> CodexWorkspaceResponse:
         settings = self.config_service.load_web_settings().codex
-        try:
-            response = await self.list_threads()
-        except Exception as exc:
-            active_id = settings.active_remote_connection_id.strip()
-            if active_id:
+        host_ids = [
+            "local",
+            *(self._host_id_for_connection(connection.id) for connection in settings.remote_connections),
+        ]
+        results = await asyncio.gather(
+            *(self._list_workspace_host(host_id) for host_id in host_ids),
+            return_exceptions=True,
+        )
+        project_groups: list[CodexProjectGroup] = []
+        for host_id, result in zip(host_ids, results, strict=True):
+            connection_id = self._connection_id_from_host(host_id)
+            if isinstance(result, BaseException):
+                if connection_id:
+                    self._set_remote_connection_status(
+                        connection_id,
+                        "error",
+                        _compact_text(str(result), limit=180)
+                        or result.__class__.__name__,
+                    )
+                else:
+                    logger.warning("Unable to list local Codex threads: %s", result)
+                continue
+            if connection_id:
                 self._set_remote_connection_status(
-                    active_id,
-                    "error",
-                    _compact_text(exc, limit=180) or exc.__class__.__name__,
+                    connection_id,
+                    "connected",
+                    "Connected",
                 )
-            raise
-        active_id = settings.active_remote_connection_id.strip()
-        if active_id:
-            self._set_remote_connection_status(active_id, "connected", "Connected")
-        workspace = self._workspace_from_threads(
-            response,
-            host_id=self._host_id(settings),
+            host_workspace = self._workspace_from_threads(result, host_id=host_id)
+            project_groups.extend(host_workspace.projects)
+
+        project_groups.sort(
+            key=lambda group: (
+                _summary_used_at(group.sessions[0]) if group.sessions else 0.0,
+                group.project.lower(),
+            ),
+            reverse=True,
+        )
+        workspace = CodexWorkspaceResponse(
+            projects=project_groups,
+            paired_editors=[],
         )
         remote = self.remote_connections()
         workspace.remote_connections = remote.connections
         workspace.active_remote_connection_id = remote.active_connection_id
         workspace.remote_connection_statuses = remote.statuses
         return workspace
+
+    async def _list_workspace_host(self, host_id: str) -> ThreadListResponse:
+        try:
+            return await asyncio.wait_for(self.list_threads(host_id), timeout=5)
+        except Exception:
+            await self._close_workspace_session(host_id)
+            raise
 
     def remote_connections(self) -> CodexRemoteConnectionsResponse:
         settings = self.config_service.load_web_settings().codex
@@ -244,34 +272,21 @@ class CodexIpcManager:
         )
 
     async def activate_remote_connection(self, connection_id: str) -> None:
-        previous_active_id = (
-            self.config_service.load_web_settings().codex.active_remote_connection_id
-        )
         self.config_service.set_active_codex_remote_connection(connection_id)
-        if previous_active_id and previous_active_id != connection_id:
-            await self.stop_remote_chatgpt_login(previous_active_id)
-            self._set_remote_connection_status(
-                previous_active_id,
-                "disconnected",
-                "Disconnected",
-            )
-        if connection_id:
-            self._set_remote_connection_status(
-                connection_id, "connecting", "Connecting"
-            )
-        await self._restart_sessions()
 
     async def restart_remote_connection(self, connection_id: str) -> None:
         if self._remote_connection_by_id(connection_id) is None:
             raise ValueError("Remote connection not found.")
-        await self.stop_remote_chatgpt_login(connection_id)
-        self.config_service.set_active_codex_remote_connection(connection_id)
         self._set_remote_connection_status(
             connection_id,
             "connecting",
             "Restarting connection",
         )
-        await self._restart_sessions()
+        await self._restart_host_sessions(self._host_id_for_connection(connection_id))
+
+    async def disconnect_remote_connection(self, connection_id: str) -> None:
+        await self._restart_host_sessions(self._host_id_for_connection(connection_id))
+        self._remote_connection_statuses.pop(connection_id, None)
 
     async def install_remote_codex(
         self,
@@ -324,67 +339,6 @@ class CodexIpcManager:
             ok=ok,
             detail=detail or ("Codex installed." if ok else "Codex install failed."),
         )
-
-    async def start_remote_chatgpt_login(
-        self,
-        connection_id: str,
-    ) -> CodexRemoteConnectionChatGptLoginResponse:
-        connection = self._remote_connection_by_id(connection_id)
-        if connection is None:
-            raise ValueError("Remote connection not found.")
-        self._set_remote_connection_status(
-            connection_id,
-            "connecting",
-            "Starting ChatGPT login",
-        )
-        login_id = uuid.uuid4().hex
-        try:
-            async with AsyncCodexClient(
-                config=self._remote_app_server_config(connection)
-            ) as client:
-                await client.initialize()
-                response = await client.account_login_start(
-                    {
-                        "type": "chatgpt",
-                        "codexStreamlinedLogin": True,
-                    },
-                )
-        except Exception as exc:
-            detail = _compact_text(exc, limit=180) or exc.__class__.__name__
-            self._set_remote_connection_status(connection_id, "error", detail)
-            return CodexRemoteConnectionChatGptLoginResponse(ok=False, detail=detail)
-        if response.root.type != "chatgpt":
-            detail = f"Unexpected login response type: {response.root.type}."
-            self._set_remote_connection_status(connection_id, "error", detail)
-            return CodexRemoteConnectionChatGptLoginResponse(ok=False, detail=detail)
-        login_id = response.root.login_id
-        try:
-            await self._start_remote_chatgpt_login_forward(connection, connection_id)
-        except Exception as exc:
-            detail = _compact_text(exc, limit=180) or exc.__class__.__name__
-            self._set_remote_connection_status(connection_id, "error", detail)
-            return CodexRemoteConnectionChatGptLoginResponse(ok=False, detail=detail)
-        self._set_remote_connection_status(
-            connection_id,
-            "connecting",
-            "Waiting for ChatGPT login",
-        )
-        return CodexRemoteConnectionChatGptLoginResponse(
-            ok=True,
-            auth_url=response.root.auth_url,
-            login_id=login_id,
-        )
-
-    async def stop_remote_chatgpt_login(self, connection_id: str) -> None:
-        process = self._remote_login_forwards.pop(connection_id, None)
-        if process is None:
-            return
-        process.terminate()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=2)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
 
     async def login_remote_api_key(
         self,
@@ -470,8 +424,8 @@ class CodexIpcManager:
         )
         return CodexRemoteConnectionTestResponse(ok=ok, detail=detail)
 
-    async def list_threads(self) -> ThreadListResponse:
-        session = await self._ensure_workspace_session()
+    async def list_threads(self, host_id: str = "local") -> ThreadListResponse:
+        session = await self._ensure_workspace_session(host_id)
         return await session.list_threads(
             {
                 "archived": False,
@@ -485,13 +439,14 @@ class CodexIpcManager:
         self,
         *,
         thread_id: str | None = None,
+        host_id: str | None = None,
         cwd: str | None = None,
         force_reload: bool = False,
     ) -> list[JsonDict]:
         session: CodexIpcSession
         resolved_cwd = cwd.strip() if isinstance(cwd, str) and cwd.strip() else ""
         if thread_id:
-            managed = await self._ensure_thread(thread_id)
+            managed = await self._ensure_thread(thread_id, host_id=host_id)
             session = managed.session
             if not resolved_cwd:
                 state = managed.state or managed.session.state
@@ -499,7 +454,7 @@ class CodexIpcManager:
                 if isinstance(state_cwd, str) and state_cwd.strip():
                     resolved_cwd = state_cwd.strip()
         else:
-            session = await self._ensure_workspace_session()
+            session = await self._ensure_workspace_session(host_id or "local")
 
         codex = await session._ensure_codex()
         params: JsonDict = {}
@@ -514,9 +469,18 @@ class CodexIpcManager:
         )
         return self._flatten_skills_response(response)
 
-    async def start_thread(self, *, project_path: str | None = None) -> JsonDict:
-        params = self._thread_start_params(project_path=project_path)
-        session = self._new_session(self._config())
+    async def start_thread(
+        self,
+        *,
+        project_path: str | None = None,
+        host_id: str = "local",
+    ) -> JsonDict:
+        resolved_host_id = self._resolve_host_id(host_id)
+        params = self._thread_start_params(
+            project_path=project_path,
+            host_id=resolved_host_id,
+        )
+        session = self._new_session(self._config(host_id=resolved_host_id))
         await session.start()
         try:
             await session.start_new_thread(params)
@@ -529,11 +493,17 @@ class CodexIpcManager:
             raise
         return {
             "thread_id": thread_id,
-            "state": session.state,
+            "host_id": resolved_host_id,
+            "state": self._state_with_host_id(session.state, resolved_host_id),
         }
 
-    async def open_thread(self, thread_id: str) -> JsonDict:
-        managed = await self._ensure_thread(thread_id)
+    async def open_thread(
+        self,
+        thread_id: str,
+        *,
+        host_id: str | None = None,
+    ) -> JsonDict:
+        managed = await self._ensure_thread(thread_id, host_id=host_id)
         return {
             "thread_id": managed.session.thread_id,
             "state": self._state_with_host_id(
@@ -542,8 +512,13 @@ class CodexIpcManager:
             ),
         }
 
-    async def get_thread_state(self, thread_id: str) -> JsonDict | None:
-        managed = await self._ensure_thread(thread_id)
+    async def get_thread_state(
+        self,
+        thread_id: str,
+        *,
+        host_id: str | None = None,
+    ) -> JsonDict | None:
+        managed = await self._ensure_thread(thread_id, host_id=host_id)
         return self._state_with_host_id(
             managed.state or managed.session.state,
             managed.session.config.host_id,
@@ -556,11 +531,14 @@ class CodexIpcManager:
         self,
         thread_id: str,
         queue: CodexSubscriberQueue,
+        *,
+        host_id: str | None = None,
     ) -> JsonDict | None:
         first_subscription = self._session_events.subscribe_thread(thread_id, queue)
         try:
             managed = await self._ensure_thread(
                 thread_id,
+                host_id=host_id,
                 following=first_subscription,
             )
         except Exception:
@@ -800,12 +778,24 @@ class CodexIpcManager:
         await self._broadcast_thread_event("thread_archived", thread_id)
         await self._close_thread(thread_id)
 
-    async def fork_thread(self, thread_id: str) -> JsonDict:
+    async def fork_thread(
+        self,
+        thread_id: str,
+        *,
+        host_id: str | None = None,
+    ) -> JsonDict:
         source_thread_id = thread_id.strip()
         if not source_thread_id:
             raise ValueError("thread_id is required.")
 
-        session = self._new_session(self._config(thread_id=source_thread_id))
+        source = await self._ensure_thread(source_thread_id, host_id=host_id)
+        source_host_id = source.session.config.host_id or "local"
+        session = self._new_session(
+            self._config(
+                host_id=source_host_id,
+                thread_id=source_thread_id,
+            )
+        )
         await session.start()
         try:
             await session.fork_thread(source_thread_id)
@@ -818,19 +808,45 @@ class CodexIpcManager:
             raise
         return {
             "thread_id": forked_thread_id,
-            "state": managed.state or managed.session.state,
+            "host_id": source_host_id,
+            "state": self._state_with_host_id(
+                managed.state or managed.session.state,
+                source_host_id,
+            ),
         }
 
-    async def unarchive_thread(self, thread_id: str) -> None:
-        session = await self._ensure_workspace_session()
+    async def unarchive_thread(
+        self,
+        thread_id: str,
+        *,
+        host_id: str | None = None,
+    ) -> None:
+        resolved_host_id = self._resolve_thread_host(thread_id, host_id)
+        session = await self._ensure_workspace_session(resolved_host_id)
         await session.unarchive_thread(thread_id)
         await self._broadcast_thread_event("thread_unarchived", thread_id)
 
-    async def _ensure_workspace_session(self) -> CodexIpcSession:
-        if self._workspace_session is None:
-            self._workspace_session = self._new_session(self._config())
-            await self._workspace_session.start()
-        return self._workspace_session
+    async def _ensure_workspace_session(self, host_id: str) -> CodexIpcSession:
+        resolved_host_id = self._resolve_host_id(host_id)
+        existing = self._workspace_sessions.get(resolved_host_id)
+        if existing is not None:
+            return existing
+        session = self._new_session(self._config(host_id=resolved_host_id))
+        self._workspace_sessions[resolved_host_id] = session
+        try:
+            await session.start()
+        except Exception:
+            self._workspace_sessions.pop(resolved_host_id, None)
+            with contextlib.suppress(Exception):
+                await session.stop()
+            raise
+        return session
+
+    async def _close_workspace_session(self, host_id: str) -> None:
+        session = self._workspace_sessions.pop(host_id, None)
+        if session is not None:
+            with contextlib.suppress(Exception):
+                await session.stop()
 
     def _flatten_skills_response(self, response: SkillsListResponse) -> list[JsonDict]:
         skills: list[JsonDict] = []
@@ -883,6 +899,7 @@ class CodexIpcManager:
         self,
         thread_id: str,
         *,
+        host_id: str | None = None,
         following: bool = False,
     ) -> ManagedCodexThread:
         normalized_thread_id = thread_id.strip()
@@ -900,7 +917,16 @@ class CodexIpcManager:
                 if following:
                     await managed.session.set_following(True)
                 return managed
-            session = self._new_session(self._config(thread_id=normalized_thread_id))
+            resolved_host_id = self._resolve_thread_host(
+                normalized_thread_id,
+                host_id,
+            )
+            session = self._new_session(
+                self._config(
+                    host_id=resolved_host_id,
+                    thread_id=normalized_thread_id,
+                )
+            )
             await session.start()
             try:
                 if following:
@@ -939,6 +965,7 @@ class CodexIpcManager:
             state=session.state,
         )
         self._threads[thread_id] = managed
+        self._thread_hosts[thread_id] = session.config.host_id or "local"
         if session.state is not None:
             await self._fanout_thread_state(thread_id, session.state, session=session)
         return managed
@@ -952,17 +979,20 @@ class CodexIpcManager:
         await managed.session.stop()
         self._session_events.clear_thread(thread_id)
 
-    async def _restart_sessions(self) -> None:
-        for managed in list(self._threads.values()):
+    async def _restart_host_sessions(self, host_id: str) -> None:
+        managed_threads = [
+            (thread_id, managed)
+            for thread_id, managed in self._threads.items()
+            if (managed.session.config.host_id or "local") == host_id
+        ]
+        for _, managed in managed_threads:
             self._cancel_managed_watchers(managed)
-        for managed in list(self._threads.values()):
+        for thread_id, managed in managed_threads:
             await self._wait_managed_watchers(managed)
             await managed.session.stop()
-        self._threads.clear()
-        self._session_events.clear_thread_subscribers()
-        if self._workspace_session is not None:
-            await self._workspace_session.stop()
-            self._workspace_session = None
+            self._threads.pop(thread_id, None)
+            self._session_events.clear_thread(thread_id)
+        await self._close_workspace_session(host_id)
 
     async def _watch_thread(
         self,
@@ -1172,21 +1202,31 @@ class CodexIpcManager:
         )
         await self.event_broker.publish(event_type, payload["payload"])
 
-    def _config(self, *, thread_id: str | None = None) -> CodexIpcConfig:
+    def _config(
+        self,
+        *,
+        host_id: str = "local",
+        thread_id: str | None = None,
+    ) -> CodexIpcConfig:
         settings = self.config_service.load_web_settings().codex
+        resolved_host_id = self._resolve_host_id(host_id, settings=settings)
         codex_home = _codex_home(self.config_service.home_dir)
         codex_config = _load_codex_home_config(codex_home)
         return CodexIpcConfig(
             thread_id=thread_id,
-            host_id=self._host_id(settings),
+            host_id=resolved_host_id,
             client_type="yier",
             model=self._thread_model(settings, codex_config),
             reasoning_effort=self._reasoning_effort(settings, codex_config),
-            app_server_config=self._app_server_config(settings, codex_home=codex_home),
+            app_server_config=self._app_server_config(
+                settings,
+                host_id=resolved_host_id,
+                codex_home=codex_home,
+            ),
             default_thread_params=self._default_thread_params(
                 settings,
                 codex_config,
-                cwd=self._default_thread_cwd(settings),
+                cwd=self._default_thread_cwd(settings, resolved_host_id),
             ),
         )
 
@@ -1197,9 +1237,10 @@ class CodexIpcManager:
         self,
         settings: StoredCodexSettings,
         *,
+        host_id: str,
         codex_home: Path,
     ) -> AppServerConfig:
-        remote_connection = self._active_remote_connection(settings)
+        remote_connection = self._connection_for_host(host_id, settings=settings)
         if remote_connection is not None:
             return self._remote_app_server_config(
                 remote_connection,
@@ -1234,7 +1275,7 @@ class CodexIpcManager:
         return AppServerConfig(
             ssh_websocket=SshWebsocketAppServerConfig(
                 connection=SshConnectionConfig(
-                    host=connection.ssh_host,
+                    host=self._ssh_target(connection),
                     alias=connection.ssh_alias or None,
                     port=connection.ssh_port,
                     identity=connection.identity_file or None,
@@ -1246,23 +1287,54 @@ class CodexIpcManager:
             client_title=client_title or f"Yier Codex ({connection.display_name})",
         )
 
-    def _host_id(self, settings: StoredCodexSettings) -> str:
-        remote_connection = self._active_remote_connection(settings)
-        if remote_connection is None:
-            return "local"
-        return f"ssh:{remote_connection.id}"
-
-    def _active_remote_connection(
+    def _connection_for_host(
         self,
-        settings: StoredCodexSettings,
+        host_id: str,
+        *,
+        settings: StoredCodexSettings | None = None,
     ) -> CodexRemoteConnection | None:
-        active_id = settings.active_remote_connection_id.strip()
-        if not active_id:
+        connection_id = self._connection_id_from_host(host_id)
+        if not connection_id:
             return None
-        for connection in settings.remote_connections:
-            if connection.id == active_id:
+        resolved_settings = (
+            settings or self.config_service.load_web_settings().codex
+        )
+        for connection in resolved_settings.remote_connections:
+            if connection.id == connection_id:
                 return connection
-        return None
+        raise ValueError(f"Unknown Codex host: {host_id}")
+
+    def _resolve_host_id(
+        self,
+        host_id: str | None,
+        *,
+        settings: StoredCodexSettings | None = None,
+    ) -> str:
+        normalized = host_id.strip() if isinstance(host_id, str) else ""
+        if not normalized or normalized == "local":
+            return "local"
+        resolved = (
+            normalized
+            if normalized.startswith("ssh:")
+            else self._host_id_for_connection(normalized)
+        )
+        self._connection_for_host(resolved, settings=settings)
+        return resolved
+
+    def _resolve_thread_host(
+        self,
+        thread_id: str,
+        host_id: str | None,
+    ) -> str:
+        if host_id:
+            return self._resolve_host_id(host_id)
+        return self._thread_hosts.get(thread_id, "local")
+
+    def _host_id_for_connection(self, connection_id: str) -> str:
+        return f"ssh:{connection_id.strip()}"
+
+    def _connection_id_from_host(self, host_id: str) -> str:
+        return host_id.removeprefix("ssh:") if host_id.startswith("ssh:") else ""
 
     def _remote_connection_by_id(
         self,
@@ -1282,7 +1354,6 @@ class CodexIpcManager:
         self,
         settings: StoredCodexSettings,
     ) -> dict[str, CodexRemoteConnectionStatus]:
-        active_id = settings.active_remote_connection_id.strip()
         statuses: dict[str, CodexRemoteConnectionStatus] = {}
         known_ids = {connection.id for connection in settings.remote_connections}
         for stale_id in set(self._remote_connection_statuses) - known_ids:
@@ -1291,12 +1362,8 @@ class CodexIpcManager:
             status = self._remote_connection_statuses.get(connection.id)
             if status is None:
                 status = CodexRemoteConnectionStatus(
-                    status="connecting"
-                    if connection.id == active_id
-                    else "disconnected",
-                    detail="Connecting"
-                    if connection.id == active_id
-                    else "Disconnected",
+                    status="disconnected",
+                    detail="Not connected yet",
                 )
             statuses[connection.id] = status
         return statuses
@@ -1336,8 +1403,13 @@ class CodexIpcManager:
             args.extend(["-i", connection.identity_file])
         if connection.ssh_port is not None:
             args.extend(["-p", str(connection.ssh_port)])
-        args.append(connection.ssh_host)
+        args.append(self._ssh_target(connection))
         return tuple(args)
+
+    def _ssh_target(self, connection: CodexRemoteConnection) -> str:
+        if not connection.ssh_username:
+            return connection.ssh_host
+        return f"{connection.ssh_username}@{connection.ssh_host}"
 
     def _remote_login_shell_command(self, script: str) -> str:
         path_prefix = (
@@ -1345,43 +1417,14 @@ class CodexIpcManager:
         )
         return f'exec "${{SHELL:-sh}}" -l -i -c {shlex.quote(path_prefix + script)}'
 
-    async def _start_remote_chatgpt_login_forward(
+    def _thread_start_params(
         self,
-        connection: CodexRemoteConnection,
-        connection_id: str,
-    ) -> None:
-        await self.stop_remote_chatgpt_login(connection_id)
-        process = await asyncio.create_subprocess_exec(
-            *self._ssh_base_args(connection, use_tty=False),
-            "-N",
-            "-L",
-            "1455:127.0.0.1:1455",
-            "-o",
-            "ExitOnForwardFailure=yes",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            await asyncio.wait_for(process.wait(), timeout=0.4)
-        except asyncio.TimeoutError:
-            self._remote_login_forwards[connection_id] = process
-            return
-        stderr = b""
-        if process.stderr is not None:
-            with contextlib.suppress(Exception):
-                stderr = await process.stderr.read()
-        detail = stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(
-            detail or f"SSH port forward exited with {process.returncode}."
-        )
-
-    async def _stop_all_remote_login_forwards(self) -> None:
-        for connection_id in list(self._remote_login_forwards):
-            await self.stop_remote_chatgpt_login(connection_id)
-
-    def _thread_start_params(self, *, project_path: str | None) -> JsonDict:
+        *,
+        project_path: str | None,
+        host_id: str,
+    ) -> JsonDict:
         settings = self.config_service.load_web_settings().codex
-        remote_connection = self._active_remote_connection(settings)
+        remote_connection = self._connection_for_host(host_id, settings=settings)
         if remote_connection is not None:
             resolved_project_path = project_path or remote_connection.remote_path or "~"
         else:
@@ -1390,8 +1433,12 @@ class CodexIpcManager:
             )
         return {"cwd": resolved_project_path}
 
-    def _default_thread_cwd(self, settings: StoredCodexSettings) -> str:
-        remote_connection = self._active_remote_connection(settings)
+    def _default_thread_cwd(
+        self,
+        settings: StoredCodexSettings,
+        host_id: str,
+    ) -> str:
+        remote_connection = self._connection_for_host(host_id, settings=settings)
         if remote_connection is not None:
             return remote_connection.remote_path or "~"
         return str(self.config_service.project_root)
@@ -1501,6 +1548,7 @@ class CodexIpcManager:
             if thread.ephemeral:
                 continue
             summary = _thread_summary(thread, host_id=host_id)
+            self._thread_hosts[summary.thread_id] = host_id
             project_key = (
                 f"{summary.host_id}::{summary.project_path or summary.project}"
             )

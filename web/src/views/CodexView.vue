@@ -33,8 +33,12 @@ function selectMobileThread(threadId: string) {
   closeMobileThreadDrawer()
 }
 
-function startMobileThread(projectPath: string) {
-  codex.startThread(projectPath)
+function startMobileThread(projectPath: string, hostId?: string) {
+  if (hostId) {
+    codex.startThread(projectPath, hostId)
+  } else {
+    codex.startThread(projectPath)
+  }
   closeMobileThreadDrawer()
 }
 </script>
@@ -56,7 +60,7 @@ function startMobileThread(projectPath: string) {
       @fork-thread="codex.forkThread"
       @rename-thread="codex.renameThread"
       @copy-error="showCodexError"
-      @remote-connection-changed="codex.refreshWorkspace"
+      @remote-connection-changed="codex.refreshWorkspaceAndSelect"
     />
 
     <main class="flex min-h-0 flex-col overflow-hidden">
@@ -102,7 +106,6 @@ function startMobileThread(projectPath: string) {
           :active-status="codex.activeStatus"
           :active-mode="codex.activeMode"
           :queued-followups="codex.queuedFollowups"
-          :workspace="codex.workspace"
           :socket-status="codex.status"
           :error-message="codex.errorMessage"
           :success-message="codex.successMessage"
@@ -128,7 +131,6 @@ function startMobileThread(projectPath: string) {
           @remove-followup="codex.removeFollowup"
           @fork-thread="codex.forkThread"
           @copy-error="showCodexError"
-          @remote-connection-changed="codex.refreshWorkspace"
         />
       </div>
     </main>
@@ -169,7 +171,7 @@ function startMobileThread(projectPath: string) {
             @fork-thread="codex.forkThread"
             @rename-thread="codex.renameThread"
             @copy-error="showCodexError"
-            @remote-connection-changed="codex.refreshWorkspace"
+            @remote-connection-changed="codex.refreshWorkspaceAndSelect"
           />
         </div>
       </Transition>

@@ -25,7 +25,7 @@ from yier_web.config import AppConfigService
 from yier_web.event_stream import EventStreamBroker
 from yier_web.frontend import FrontendService
 from yier_web.routes.codex import CodexController
-from yier_web.schemas import CodexRemoteConnectionPayload, CodexWorkspaceResponse
+from yier_web.schemas import CodexRemoteConnectionPayload
 
 
 def fake_thread(
@@ -98,6 +98,7 @@ class FakeCodexIpcSession:
         self.following_calls: list[bool] = []
         self.lifecycle_calls: list[str] = []
         self.list_threads_calls: list[dict[str, Any] | None] = []
+        self.list_threads_error: Exception | None = None
         self.skills_list_calls: list[dict[str, Any] | None] = []
         self._state_queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         self.list_threads_response = ThreadListResponse(
@@ -197,6 +198,8 @@ class FakeCodexIpcSession:
         self, params: dict[str, Any] | None = None
     ) -> ThreadListResponse:
         self.list_threads_calls.append(params)
+        if self.list_threads_error is not None:
+            raise self.list_threads_error
         return self.list_threads_response
 
     async def _ensure_codex(self) -> SimpleNamespace:
@@ -387,11 +390,21 @@ class FakeSessionFactory:
                 return session
         raise KeyError(thread_id)
 
-    def workspace_session(self) -> FakeCodexIpcSession:
+    def workspace_session(self, host_id: str = "local") -> FakeCodexIpcSession:
         for session in self.sessions:
-            if session.config.thread_id is None:
+            if session.config.thread_id is None and session.config.host_id == host_id:
                 return session
-        raise KeyError("workspace")
+        raise KeyError(f"workspace:{host_id}")
+
+
+class UnreachableRemoteSessionFactory(FakeSessionFactory):
+    def __call__(
+        self, config: Any, *, notify: Callable[[str], None] | None = None
+    ) -> FakeCodexIpcSession:
+        session = super().__call__(config, notify=notify)
+        if config.thread_id is None and str(config.host_id).startswith("ssh:"):
+            session.list_threads_error = RuntimeError("Connection refused")
+        return session
 
 
 class NativeEventSessionFactory(FakeSessionFactory):
@@ -1085,7 +1098,7 @@ def test_codex_controller_http_and_websocket_contract(tmp_path: Path) -> None:
                     },
                 }
             )
-            prompt_messages = receive_until(
+            receive_until(
                 lambda message: (
                     message.get("type") == "ack" and message.get("id") == "prompt-1"
                 )
@@ -1340,7 +1353,7 @@ def test_codex_controller_http_and_websocket_contract(tmp_path: Path) -> None:
                     },
                 }
             )
-            input_messages = receive_until(
+            receive_until(
                 lambda message: (
                     message.get("type") == "ack" and message.get("id") == "input-1"
                 )
@@ -1496,6 +1509,7 @@ def test_codex_remote_connection_configures_ssh_app_server(tmp_path: Path) -> No
         CodexRemoteConnectionPayload(
             display_name="Build host",
             ssh_host="builder.example.com",
+            ssh_username="builder",
             ssh_port=2222,
             identity_file="~/.ssh/build",
             remote_path="/srv/project",
@@ -1508,22 +1522,28 @@ def test_codex_remote_connection_configures_ssh_app_server(tmp_path: Path) -> No
 
     assert workspace_response.status_code == 200
     payload = workspace_response.json()
-    assert payload["active_remote_connection_id"] == connection.id
+    assert payload["active_remote_connection_id"] == ""
     assert payload["remote_connections"][0]["display_name"] == "Build host"
     assert payload["remote_connection_statuses"][connection.id]["status"] == "connected"
 
-    session = factory.workspace_session()
-    assert session.config.host_id == f"ssh:{connection.id}"
+    assert {project["host_id"] for project in payload["projects"]} == {
+        "local",
+        f"ssh:{connection.id}",
+    }
+    session = factory.workspace_session(f"ssh:{connection.id}")
     app_server_config = session.config.app_server_config
     assert app_server_config.launch_args_override is None
     assert app_server_config.ssh_websocket is not None
     ssh_config = app_server_config.ssh_websocket.connection
-    assert ssh_config.host == "builder.example.com"
+    assert ssh_config.host == "builder@builder.example.com"
     assert ssh_config.port == 2222
     assert ssh_config.identity == "~/.ssh/build"
     assert app_server_config.ssh_websocket.remote_cwd == "/srv/project"
 
-    create_response = client.post("/api/codex/threads", json={})
+    create_response = client.post(
+        "/api/codex/threads",
+        json={"host_id": f"ssh:{connection.id}"},
+    )
     assert create_response.status_code == 201
     created_session = factory.by_thread_id("thread-created")
     assert created_session.start_new_thread_calls[0]["cwd"] == "/srv/project"
@@ -1554,15 +1574,17 @@ def test_codex_remote_connection_routes_persist_and_switch_hosts(
         )
         assert create_response.status_code == 201
         connection_id = create_response.json()["connection"]["id"]
-        assert local_session.stopped is True
+        assert local_session.stopped is False
 
         list_response = client.get("/api/codex/remote-connections")
         assert list_response.status_code == 200
-        assert list_response.json()["active_connection_id"] == connection_id
+        assert list_response.json()["active_connection_id"] == ""
 
         remote_workspace = client.get("/api/codex/workspace")
         assert remote_workspace.status_code == 200
-        assert factory.sessions[-1].config.host_id == f"ssh:{connection_id}"
+        remote_session = factory.workspace_session(f"ssh:{connection_id}")
+        assert remote_session.config.host_id == f"ssh:{connection_id}"
+        assert local_session.stopped is False
         assert (
             remote_workspace.json()["remote_connection_statuses"][connection_id][
                 "status"
@@ -1588,13 +1610,15 @@ def test_codex_remote_connection_routes_persist_and_switch_hosts(
             f"/api/codex/remote-connections/{connection_id}/restart"
         )
         assert restart_response.status_code == 201
+        assert remote_session.stopped is True
+        assert local_session.stopped is False
         status_response = client.get("/api/codex/remote-connections")
         assert (
             status_response.json()["statuses"][connection_id]["status"] == "connecting"
         )
 
 
-def test_codex_remote_connection_auto_connect_controls_active_host(
+def test_codex_remote_connection_save_does_not_switch_active_host(
     tmp_path: Path,
 ) -> None:
     config_service = AppConfigService(
@@ -1622,7 +1646,75 @@ def test_codex_remote_connection_auto_connect_controls_active_host(
         connection_id=connection.id,
     )
 
-    assert config_service.load_web_settings().codex.active_remote_connection_id == ""
+    assert (
+        config_service.load_web_settings().codex.active_remote_connection_id
+        == connection.id
+    )
+
+
+def test_codex_remote_connection_alias_discards_direct_ssh_fields(
+    tmp_path: Path,
+) -> None:
+    config_service = AppConfigService(
+        project_root=tmp_path / "project",
+        home_dir=tmp_path / "home",
+    )
+
+    connection = config_service.save_codex_remote_connection(
+        CodexRemoteConnectionPayload(
+            display_name="Workstation",
+            ssh_host="100.64.0.93",
+            ssh_username="valve",
+            ssh_port=22222,
+            ssh_alias="valve",
+            identity_file="~/.ssh/id_rsa",
+        )
+    )
+
+    assert connection.ssh_alias == "valve"
+    assert connection.ssh_host == ""
+    assert connection.ssh_username == ""
+    assert connection.ssh_port is None
+    assert connection.identity_file == ""
+
+
+def test_codex_workspace_isolates_ssh_connection_failures(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        config_service = AppConfigService(
+            project_root=tmp_path / "project",
+            home_dir=tmp_path / "home",
+        )
+        connection = config_service.save_codex_remote_connection(
+            CodexRemoteConnectionPayload(
+                display_name="Unreachable",
+                ssh_host="user@bad-host",
+                auto_connect=True,
+            )
+        )
+        factory = UnreachableRemoteSessionFactory()
+        manager = CodexIpcManager(
+            config_service=config_service,
+            event_broker=EventStreamBroker(),
+            session_factory=factory,
+        )
+
+        workspace = await manager.workspace()
+
+        assert workspace.projects
+        assert workspace.active_remote_connection_id == ""
+        assert config_service.load_web_settings().codex.active_remote_connection_id == ""
+        assert workspace.remote_connection_statuses[connection.id].status == "error"
+        assert "Connection refused" in workspace.remote_connection_statuses[
+            connection.id
+        ].detail
+        remote_session = factory.workspace_session(f"ssh:{connection.id}")
+        local_session = factory.workspace_session()
+        assert remote_session.stopped is True
+        assert local_session.stopped is False
+
+    asyncio.run(scenario())
 
 
 def test_codex_remote_connection_install_uses_official_installer(
@@ -1747,111 +1839,6 @@ def test_codex_remote_connection_api_key_login_uses_remote_app_server(
         assert ("read", {"refreshToken": False}) in calls
         statuses = manager.remote_connections().statuses
         assert statuses[connection.id].status == "connected"
-
-    asyncio.run(scenario())
-
-
-def test_codex_remote_chatgpt_login_starts_port_forward(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def scenario() -> None:
-        factory = FakeSessionFactory()
-        config_service = AppConfigService(
-            project_root=tmp_path / "project",
-            home_dir=tmp_path / "home",
-        )
-        connection = config_service.save_codex_remote_connection(
-            CodexRemoteConnectionPayload(
-                display_name="Build host",
-                ssh_host="builder.example.com",
-                ssh_port=2222,
-                auto_connect=False,
-            )
-        )
-        manager = CodexIpcManager(
-            config_service=config_service,
-            event_broker=EventStreamBroker(),
-            session_factory=factory,
-        )
-        client_calls: list[tuple[str, Any]] = []
-        subprocess_calls: list[tuple[str, ...]] = []
-
-        class FakeLoginResponse:
-            root = SimpleNamespace(
-                type="chatgpt",
-                auth_url="https://chatgpt.com/login",
-                login_id="login-1",
-            )
-
-        class FakeAsyncCodexClient:
-            def __init__(self, *, config: Any) -> None:
-                client_calls.append(("config", config))
-
-            async def __aenter__(self) -> "FakeAsyncCodexClient":
-                return self
-
-            async def __aexit__(self, _exc_type: Any, _exc: Any, _tb: Any) -> None:
-                return None
-
-            async def initialize(self) -> None:
-                client_calls.append(("initialize", None))
-
-            async def account_login_start(
-                self,
-                params: dict[str, Any],
-            ) -> FakeLoginResponse:
-                client_calls.append(("account/login/start", params))
-                return FakeLoginResponse()
-
-        class FakeProcess:
-            returncode = None
-            stderr = None
-
-            def terminate(self) -> None:
-                self.returncode = -15
-
-            def kill(self) -> None:
-                self.returncode = -9
-
-            async def wait(self) -> None:
-                if self.returncode is not None:
-                    return None
-                await asyncio.sleep(10)
-
-        async def fake_create_subprocess_exec(
-            *args: str, **_kwargs: Any
-        ) -> FakeProcess:
-            subprocess_calls.append(args)
-            return FakeProcess()
-
-        monkeypatch.setattr(
-            "yier_web.codex.ipc_manager.AsyncCodexClient",
-            FakeAsyncCodexClient,
-        )
-        monkeypatch.setattr(
-            "yier_web.codex.ipc_manager.asyncio.create_subprocess_exec",
-            fake_create_subprocess_exec,
-        )
-
-        result = await manager.start_remote_chatgpt_login(connection.id)
-
-        assert result.ok is True
-        assert result.auth_url == "https://chatgpt.com/login"
-        assert (
-            "account/login/start",
-            {"type": "chatgpt", "codexStreamlinedLogin": True},
-        ) in client_calls
-        assert subprocess_calls
-        args = subprocess_calls[0]
-        assert "-N" in args
-        assert "-L" in args
-        assert "1455:127.0.0.1:1455" in args
-        assert "ExitOnForwardFailure=yes" in args
-        statuses = manager.remote_connections().statuses
-        assert statuses[connection.id].status == "connecting"
-
-        await manager.stop_remote_chatgpt_login(connection.id)
 
     asyncio.run(scenario())
 

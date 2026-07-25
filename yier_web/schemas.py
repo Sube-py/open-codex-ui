@@ -86,6 +86,7 @@ class CodexRemoteConnection(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     display_name: str = ""
     ssh_host: str = ""
+    ssh_username: str = ""
     ssh_port: int | None = None
     ssh_alias: str = ""
     identity_file: str = ""
@@ -96,6 +97,7 @@ class CodexRemoteConnection(BaseModel):
         "id",
         "display_name",
         "ssh_host",
+        "ssh_username",
         "ssh_alias",
         "identity_file",
         "remote_path",
@@ -114,18 +116,43 @@ class CodexRemoteConnection(BaseModel):
         return value
 
     def normalized(self) -> "CodexRemoteConnection":
-        display_name = self.display_name or self.ssh_alias or self.ssh_host
+        if self.ssh_alias:
+            display_name = self.display_name or self.ssh_alias
+            return self.model_copy(
+                update={
+                    "display_name": display_name,
+                    "ssh_host": "",
+                    "ssh_username": "",
+                    "ssh_port": None,
+                    "identity_file": "",
+                    "remote_path": self.remote_path or "~",
+                }
+            )
+
+        ssh_host, ssh_username = self._direct_target()
+        display_name = self.display_name or "@".join(
+            part for part in (ssh_username, ssh_host) if part
+        )
         return self.model_copy(
             update={
                 "display_name": display_name,
+                "ssh_host": ssh_host,
+                "ssh_username": ssh_username,
                 "remote_path": self.remote_path or "~",
             }
         )
+
+    def _direct_target(self) -> tuple[str, str]:
+        if self.ssh_username or "@" not in self.ssh_host:
+            return self.ssh_host, self.ssh_username
+        ssh_username, ssh_host = self.ssh_host.split("@", maxsplit=1)
+        return ssh_host, ssh_username
 
 
 class CodexRemoteConnectionPayload(BaseModel):
     display_name: str = ""
     ssh_host: str = ""
+    ssh_username: str = ""
     ssh_port: int | None = None
     ssh_alias: str = ""
     identity_file: str = ""
@@ -135,6 +162,7 @@ class CodexRemoteConnectionPayload(BaseModel):
     @field_validator(
         "display_name",
         "ssh_host",
+        "ssh_username",
         "ssh_alias",
         "identity_file",
         "remote_path",
@@ -154,13 +182,6 @@ class CodexRemoteConnectionApiKeyLoginPayload(BaseModel):
         if not stripped:
             raise ValueError("apiKey is required.")
         return stripped
-
-
-class CodexRemoteConnectionChatGptLoginResponse(BaseModel):
-    ok: bool
-    auth_url: str = ""
-    login_id: str = ""
-    detail: str = ""
 
 
 class CodexRemoteConnectionResponse(BaseModel):
@@ -414,6 +435,7 @@ class CodexFilesystemResponse(BaseModel):
 
 class CodexThreadCreateRequest(BaseModel):
     project_path: str | None = None
+    host_id: str = "local"
 
     @field_validator("project_path")
     @classmethod
@@ -423,9 +445,15 @@ class CodexThreadCreateRequest(BaseModel):
         stripped = value.strip()
         return stripped or None
 
+    @field_validator("host_id")
+    @classmethod
+    def strip_host_id(cls, value: str) -> str:
+        return value.strip() or "local"
+
 
 class CodexThreadCreateResponse(BaseModel):
     thread_id: str
+    host_id: str = "local"
     state: dict[str, Any] | None = None
 
 

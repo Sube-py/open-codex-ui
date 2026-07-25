@@ -178,6 +178,22 @@ describe('CodexHostPathPicker', () => {
     expect(visibleUpdates[visibleUpdates.length - 1]).toEqual([false])
   })
 
+  it('hides folder confirmation when only files may be selected', async () => {
+    apiGetMock.mockResolvedValueOnce(filesystemResponse('/home/test/.ssh'))
+
+    const wrapper = mountPicker({
+      selectedPath: '~/.ssh',
+      allowFiles: true,
+      allowCurrentFolder: false,
+    })
+    await flushPromises()
+
+    expect(apiGetMock).toHaveBeenCalledWith(
+      '/api/codex/filesystem?path=~%2F.ssh',
+    )
+    expect(wrapper.find('[data-codex-host-path-confirm]').exists()).toBe(false)
+  })
+
   it('shows load errors without selecting a path', async () => {
     apiGetMock.mockRejectedValueOnce(new Error('Permission denied: /private'))
 
