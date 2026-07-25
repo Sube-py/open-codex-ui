@@ -87,10 +87,8 @@ def dev_web() -> int:
 
 
 def prod() -> int:
-    parser = argparse.ArgumentParser(
-        description="Start the backend in production mode."
-    )
-    parser.add_argument("--host", default="0.0.0.0")
+    parser = argparse.ArgumentParser(description="Start Yier in production mode.")
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9999)
     args = parser.parse_args()
 

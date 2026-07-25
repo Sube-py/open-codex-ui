@@ -451,10 +451,9 @@ def build_app(
     tmp_path: Path, factory: FakeSessionFactory
 ) -> tuple[AppConfigService, TestClient[Any]]:
     project_root = tmp_path / "project"
-    (project_root / "web" / "dist").mkdir(parents=True)
-    (project_root / "web" / "dist" / "index.html").write_text(
-        "<html></html>", encoding="utf-8"
-    )
+    dist_root = tmp_path / "static"
+    dist_root.mkdir(parents=True)
+    (dist_root / "index.html").write_text("<html></html>", encoding="utf-8")
     config_service = AppConfigService(
         project_root=project_root, home_dir=tmp_path / "home"
     )
@@ -463,7 +462,7 @@ def build_app(
         event_broker=EventStreamBroker(),
         session_factory=factory,
     )
-    frontend_service = FrontendService(project_root=project_root)
+    frontend_service = FrontendService(dist_root=dist_root)
     app = create_app(
         project_root=project_root,
         home_dir=tmp_path / "home",

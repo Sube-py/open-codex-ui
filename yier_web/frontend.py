@@ -15,13 +15,13 @@ from yier_web.schemas import FrontendHealth
 class FrontendService:
     def __init__(
         self,
-        project_root: Path,
+        dist_root: Path | None = None,
         vite_origin: str = "http://127.0.0.1:5173",
         debug: bool = False,
     ) -> None:
-        self.project_root = project_root.resolve()
-        self.web_root = self.project_root / "web"
-        self.dist_root = self.web_root / "dist"
+        self.dist_root = (
+            dist_root or Path(__file__).resolve().parent / "static"
+        ).resolve()
         self.vite_origin = vite_origin.rstrip("/")
         self.debug = debug
 

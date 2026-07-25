@@ -20,3 +20,4 @@ debug/
 tmp/
 *.jsonl
 output/
+/yier_web/static/

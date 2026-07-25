@@ -1,7 +1,7 @@
 [project]
 name = "yier"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.1.1"
+description = "Remote-friendly web workspace for Codex sessions"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -10,11 +10,11 @@ dependencies = [
     "httpx>=0.28.1",
     "litestar>=2.21.1",
     "pydantic>=2.12.5",
-    "yier-channel",
     "yier-agents>=0.1.3",
 ]
 
 [project.scripts]
+yier = "yier_web.cli:prod"
 yier-dev = "yier_web.cli:dev"
 yier-dev-backend = "yier_web.cli:dev_backend"
 yier-dev-web = "yier_web.cli:dev_web"
@@ -27,6 +27,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["yier_web*"]
+
+[tool.setuptools.package-data]
+yier_web = ["static/*", "static/**/*"]
 
 [tool.uv.workspace]
 members = ["packages/yier-channel"]

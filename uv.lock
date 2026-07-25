@@ -1249,7 +1249,7 @@ wheels = [
 
 [[package]]
 name = "yier"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "codex-ipc" },
@@ -1258,7 +1258,6 @@ dependencies = [
     { name = "litestar" },
     { name = "pydantic" },
     { name = "yier-agents" },
-    { name = "yier-channel" },
 ]
 
 [package.dev-dependencies]
@@ -1275,7 +1274,6 @@ requires-dist = [
     { name = "litestar", specifier = ">=2.21.1" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "yier-agents", specifier = ">=0.1.3" },
-    { name = "yier-channel", editable = "packages/yier-channel" },
 ]
 
 [package.metadata.requires-dev]

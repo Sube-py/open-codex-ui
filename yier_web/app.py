@@ -30,7 +30,9 @@ from yier_web.routes import (
     HealthController,
     SystemController,
 )
-from yier_web.routes.core import wait_for_event_stream_item
+from yier_web.routes.core import (
+    wait_for_event_stream_item as wait_for_event_stream_item,
+)
 
 
 @dataclass(slots=True)
@@ -124,7 +126,6 @@ def build_services(
         ),
         event_broker=event_broker,
         frontend_service=FrontendService(
-            project_root=resolved_root,
             debug=_env_flag("YIER_DEBUG"),
         ),
         directory_picker_service=LocalDirectoryPickerService(),

@@ -9,6 +9,10 @@ const backendOrigin = process.env.VITE_BACKEND_ORIGIN ?? 'http://127.0.0.1:9999'
 
 // https://vite.dev/config/
 export default defineConfig({
+  build: {
+    outDir: '../yier_web/static',
+    emptyOutDir: true,
+  },
   plugins: [
     vue(),
     // vueDevTools(),
@@ -32,7 +36,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
 })

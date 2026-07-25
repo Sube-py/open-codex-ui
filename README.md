@@ -11,14 +11,26 @@ Remote-friendly Codex web workspace for continuing sessions from desktop and mob
 
 ## Requirements
 
-- Python 3.12+
-- `uv`
-- Node.js 20+
-- `pnpm`
+- [`uv`](https://docs.astral.sh/uv/) for running the published application
+- Python 3.12+, Node.js 20+, and `pnpm` only for source development
 
 ## Install
 
-Backend dependencies:
+Run the published application without a permanent installation:
+
+```bash
+uvx yier
+```
+
+The wheel includes the compiled frontend and starts in production mode. For a
+persistent command, install it as a uv tool:
+
+```bash
+uv tool install yier
+yier
+```
+
+For source development, install the backend dependencies:
 
 ```bash
 uv sync
@@ -26,7 +38,7 @@ uv sync
 
 Codex workspace support uses the published `codex-ipc` package from PyPI.
 
-Frontend dependencies:
+Then install the frontend dependencies:
 
 ```bash
 cd web
@@ -239,23 +251,30 @@ Notes:
 
 ## Production Startup
 
-Production mode does not use the Vite dev server.
+The published wheel includes the compiled frontend and does not use the Vite
+dev server:
 
-You must build the frontend first:
+```bash
+uvx yier
+```
+
+The server listens on `127.0.0.1:9999` by default. Bind to the local network
+explicitly when needed:
+
+```bash
+uvx yier --host 0.0.0.0 --port 9999
+```
+
+When running from a source checkout, build the frontend before starting:
 
 ```bash
 uv run yier-build-web
-```
-
-Then start the backend without `--debug`:
-
-```bash
 uv run yier-prod
 ```
 
 In production mode:
 
-- The backend serves `web/dist`
+- The backend serves the compiled assets packaged under `yier_web/static`
 - No Vite proxy is used
 - Authentication should usually be enabled with `YIER_AUTH_PASSWORD` or `YIER_AUTH_PASSWORD_HASH`
 
@@ -263,8 +282,7 @@ Production example:
 
 ```bash
 export YIER_AUTH_PASSWORD='change-this-password'
-uv run yier-build-web
-uv run yier-prod --host 0.0.0.0 --port 9999
+uvx yier --host 0.0.0.0 --port 9999
 ```
 
 ## Common Commands
@@ -319,8 +337,7 @@ Production:
 
 ```bash
 export YIER_AUTH_PASSWORD='change-this-password'
-uv run yier-build-web
-uv run yier-prod --host 0.0.0.0 --port 9999
+uvx yier --host 0.0.0.0 --port 9999
 ```
 
 ## Available uv Scripts
@@ -333,6 +350,6 @@ Development:
 
 Production:
 
+- `uvx yier`: run the published wheel in production mode
 - `uv run yier-build-web`: build frontend assets
 - `uv run yier-prod`: start backend in production mode
-```
