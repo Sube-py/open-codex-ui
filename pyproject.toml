@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "codex-ipc>=0.1.7",
+    "codex-ipc==0.1.8",
     "granian[reload]>=2.7.2",
     "httpx>=0.28.1",
     "litestar>=2.21.1",
@@ -32,7 +32,6 @@ include = ["yier_web*"]
 members = ["packages/yier-channel"]
 
 [tool.uv.sources]
-codex-ipc = { path = "../codex-ipc", editable = true }
 yier-channel = { workspace = true }
 
 [dependency-groups]
