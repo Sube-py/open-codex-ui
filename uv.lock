@@ -1269,7 +1269,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "codex-ipc", specifier = "==0.1.8" },
+    { name = "codex-ipc", specifier = ">=0.1.8" },
     { name = "granian", extras = ["reload"], specifier = ">=2.7.2" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "litestar", specifier = ">=2.21.1" },
