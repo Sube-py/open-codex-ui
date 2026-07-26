@@ -26,7 +26,15 @@ mobile browsers.
 
 ## Quick Start
 
-Run the packaged application with [`uv`](https://docs.astral.sh/uv/):
+Run the packaged application through Node.js:
+
+```bash
+npx open-codex-ui
+```
+
+The npm launcher reuses an existing `uvx`, or installs `uv` from Astral's
+official installer into its own cache. You can also run the Python package
+directly with [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
 uvx open-codex-ui
@@ -44,6 +52,8 @@ uvx open-codex-ui serve --host 0.0.0.0 --port 13140
 Install the command persistently and register login startup:
 
 ```bash
+npx open-codex-ui daemon install
+# or
 uvx open-codex-ui daemon install
 ```
 

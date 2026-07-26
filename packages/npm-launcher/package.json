@@ -1,0 +1,40 @@
+{
+  "name": "open-codex-ui",
+  "version": "0.1.6",
+  "description": "npx launcher for Open Codex UI",
+  "type": "module",
+  "bin": {
+    "open-codex-ui": "bin/open-codex-ui.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check bin/open-codex-ui.js && node --check src/launcher.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sube-py/open-codex-ui.git",
+    "directory": "packages/npm-launcher"
+  },
+  "homepage": "https://github.com/Sube-py/open-codex-ui#readme",
+  "bugs": "https://github.com/Sube-py/open-codex-ui/issues",
+  "keywords": [
+    "codex",
+    "uv",
+    "uvx",
+    "launcher"
+  ],
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  }
+}

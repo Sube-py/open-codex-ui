@@ -21,3 +21,4 @@ tmp/
 *.jsonl
 output/
 /yier_web/static/
+/packages/npm-launcher/*.tgz
