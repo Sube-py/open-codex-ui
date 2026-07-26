@@ -15,6 +15,7 @@ from granian.constants import Interfaces
 
 from yier_web.daemon import DaemonManager, UvToolUpdater, load_service_environment
 from yier_web.system_services import ServiceError
+from yier_web.tunnel import DEFAULT_ORIGIN, TunnelError, TunnelManager
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -134,6 +135,28 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ServiceError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 1
+    if args.command == "tunnel":
+        try:
+            manager = TunnelManager()
+            if args.tunnel_command == "start":
+                return manager.start(
+                    mode=args.mode,
+                    origin=args.origin,
+                    name=args.name,
+                    hostname=args.hostname,
+                    token_file=args.token_file,
+                    api_token_file=args.api_token_file,
+                    account_id=args.account_id,
+                    config=args.config,
+                    timeout=args.timeout,
+                )
+            if args.tunnel_command == "status":
+                return manager.status()
+            if args.tunnel_command == "stop":
+                return manager.stop()
+        except (OSError, TunnelError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
 
     parser.error(f"Unknown command: {args.command}")
     return 2
@@ -231,6 +254,67 @@ def _build_parser() -> argparse.ArgumentParser:
     daemon_subparsers.add_parser("stop", help="stop the installed service")
     daemon_subparsers.add_parser("status", help="show installed service status")
     daemon_subparsers.add_parser("uninstall", help="remove the login service")
+
+    tunnel_parser = subparsers.add_parser(
+        "tunnel",
+        help="manage a Cloudflare Tunnel",
+        description="Expose Open Codex UI through a Cloudflare Tunnel.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    tunnel_subparsers = tunnel_parser.add_subparsers(
+        dest="tunnel_command",
+        required=True,
+    )
+    tunnel_start_parser = tunnel_subparsers.add_parser(
+        "start",
+        help="start a tunnel in the background",
+        description="Start an independently managed cloudflared process.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    tunnel_start_parser.add_argument(
+        "--mode",
+        choices=("quick", "managed-remote", "managed-local"),
+        default="quick",
+    )
+    tunnel_start_parser.add_argument(
+        "--origin",
+        help=f"local HTTP origin (quick mode defaults to {DEFAULT_ORIGIN})",
+    )
+    tunnel_start_parser.add_argument(
+        "--name",
+        help="Cloudflare dashboard tunnel name for managed-remote mode",
+    )
+    tunnel_start_parser.add_argument(
+        "--hostname",
+        help="public hostname for a managed tunnel",
+    )
+    tunnel_start_parser.add_argument(
+        "--token-file",
+        type=Path,
+        help="file containing a managed tunnel connector token",
+    )
+    tunnel_start_parser.add_argument(
+        "--api-token-file",
+        type=Path,
+        help="file containing a Cloudflare API token (otherwise CF_TOKEN)",
+    )
+    tunnel_start_parser.add_argument(
+        "--account-id",
+        help="Cloudflare account ID (otherwise CF_ACCOUNT_ID or discovery)",
+    )
+    tunnel_start_parser.add_argument(
+        "--config",
+        type=Path,
+        help="cloudflared config for managed-local mode",
+    )
+    tunnel_start_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=30,
+        help="seconds to wait for cloudflared readiness",
+    )
+    tunnel_subparsers.add_parser("status", help="show tunnel status")
+    tunnel_subparsers.add_parser("stop", help="stop the managed tunnel")
     return parser
 
 

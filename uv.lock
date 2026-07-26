@@ -633,6 +633,7 @@ dependencies = [
     { name = "litestar" },
     { name = "open-codex-bridge" },
     { name = "pydantic" },
+    { name = "pyyaml" },
     { name = "yier-agents" },
 ]
 
@@ -649,6 +650,7 @@ requires-dist = [
     { name = "litestar", specifier = ">=2.21.1" },
     { name = "open-codex-bridge", specifier = ">=0.1.9" },
     { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "yier-agents", specifier = ">=0.1.3" },
 ]
 

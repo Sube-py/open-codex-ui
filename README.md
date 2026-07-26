@@ -79,6 +79,51 @@ The service starts when the user logs in. Runtime state, retained environment,
 and logs live under `~/.yier/web/`. Run `daemon install` again to update its
 host, port, or captured environment; use `update` for application versions.
 
+## Cloudflare Tunnel
+
+Start Open Codex UI first, then expose the default local address with an
+ephemeral Quick Tunnel:
+
+```bash
+open-codex-ui tunnel start
+open-codex-ui tunnel status
+open-codex-ui tunnel stop
+```
+
+For a tunnel already configured in the Cloudflare dashboard, provide an API
+token that can read the account's tunnel configuration and connector token:
+
+```bash
+export CF_TOKEN='your-cloudflare-api-token'
+open-codex-ui tunnel start --mode managed-remote --name my-tunnel
+```
+
+The named-tunnel flow discovers its public hostname and local origin from
+Cloudflare. Set `CF_ACCOUNT_ID` or pass `--account-id` when account discovery
+is unavailable. You can bypass the API with an existing connector token file:
+
+```bash
+open-codex-ui tunnel start --mode managed-remote \
+  --token-file ~/.cloudflared/my-tunnel.token \
+  --hostname codex.example.com
+```
+
+Locally managed cloudflared configurations are also supported:
+
+```bash
+open-codex-ui tunnel start --mode managed-local
+open-codex-ui tunnel start --mode managed-local --config ~/.cloudflared/config.yml
+```
+
+Tunnel state and logs are stored under `~/.yier/web/`. API and connector tokens
+are never persisted there or included in the cloudflared command line. Tunnel
+processes are independent from the login service, and `tunnel stop` only stops
+the cloudflared process started by Open Codex UI.
+
+> [!WARNING]
+> A tunnel exposes Open Codex UI to the public Internet. Configure application
+> authentication or Cloudflare Access before sharing the public URL.
+
 ## Updating
 
 Update a persistent installation to the latest stable release:

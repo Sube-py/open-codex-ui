@@ -134,6 +134,43 @@ def test_main_dispatches_update(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls == ["update"]
 
 
+@pytest.mark.parametrize(
+    ("arguments", "method_name"),
+    [
+        (["tunnel", "start"], "start"),
+        (["tunnel", "status"], "status"),
+        (["tunnel", "stop"], "stop"),
+    ],
+)
+def test_main_dispatches_tunnel_commands(
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: list[str],
+    method_name: str,
+) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    class FakeTunnelManager:
+        def start(self, **kwargs: Any) -> int:
+            calls.append(("start", kwargs))
+            return 0
+
+        def status(self) -> int:
+            calls.append(("status", {}))
+            return 0
+
+        def stop(self) -> int:
+            calls.append(("stop", {}))
+            return 0
+
+    monkeypatch.setattr(cli, "TunnelManager", FakeTunnelManager)
+
+    assert cli.main(arguments) == 0
+    assert calls[0][0] == method_name
+    if method_name == "start":
+        assert calls[0][1]["mode"] == "quick"
+        assert calls[0][1]["origin"] is None
+
+
 def test_main_reports_installed_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         cli.main(["--version"])
