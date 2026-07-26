@@ -15,7 +15,7 @@ class FakeServer:
         self.served = True
 
 
-def test_prod_starts_with_safe_production_defaults(
+def test_main_starts_with_safe_production_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, Any] = {}
@@ -26,13 +26,95 @@ def test_prod_starts_with_safe_production_defaults(
         return server
 
     monkeypatch.setattr(cli, "build_server", fake_build_server)
-    monkeypatch.setattr("sys.argv", ["open-codex-ui"])
-
-    assert cli.prod() == 0
+    assert cli.main([]) == 0
     assert captured == {
         "host": "127.0.0.1",
-        "port": 9999,
+        "port": 13140,
         "debug": False,
         "reload": False,
     }
     assert server.served is True
+
+
+def test_main_accepts_explicit_serve_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+    server = FakeServer()
+
+    def fake_build_server(**kwargs: Any) -> FakeServer:
+        captured.update(kwargs)
+        return server
+
+    monkeypatch.setattr(cli, "build_server", fake_build_server)
+
+    assert cli.main(["serve", "--host", "0.0.0.0", "--port", "8080"]) == 0
+    assert captured["host"] == "0.0.0.0"
+    assert captured["port"] == 8080
+
+
+def test_main_keeps_legacy_server_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_build_server(**kwargs: Any) -> FakeServer:
+        captured.update(kwargs)
+        return FakeServer()
+
+    monkeypatch.setattr(cli, "build_server", fake_build_server)
+
+    assert cli.main(["--port", "8081"]) == 0
+    assert captured["port"] == 8081
+
+
+@pytest.mark.parametrize(
+    ("arguments", "method_name", "expected_kwargs"),
+    [
+        (
+            [
+                "daemon",
+                "install",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8082",
+            ],
+            "install",
+            {"host": "0.0.0.0", "port": 8082},
+        ),
+        (["daemon", "start"], "start", {}),
+        (["daemon", "stop"], "stop", {}),
+        (["daemon", "status"], "status", {}),
+        (["daemon", "uninstall"], "uninstall", {}),
+    ],
+)
+def test_main_dispatches_daemon_commands(
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: list[str],
+    method_name: str,
+    expected_kwargs: dict[str, Any],
+) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    class FakeDaemonManager:
+        def install(self, **kwargs: Any) -> int:
+            calls.append(("install", kwargs))
+            return 0
+
+        def start(self) -> int:
+            calls.append(("start", {}))
+            return 0
+
+        def stop(self) -> int:
+            calls.append(("stop", {}))
+            return 0
+
+        def status(self) -> int:
+            calls.append(("status", {}))
+            return 0
+
+        def uninstall(self) -> int:
+            calls.append(("uninstall", {}))
+            return 0
+
+    monkeypatch.setattr(cli, "DaemonManager", FakeDaemonManager)
+
+    assert cli.main(arguments) == 0
+    assert calls == [(method_name, expected_kwargs)]

@@ -1,236 +1,143 @@
 <p align="center">
-  <img src="web/public/brand/open-codex-ui-logo.svg" alt="Open Codex UI" width="520">
+  <img src="https://raw.githubusercontent.com/Sube-py/open-codex-ui/main/web/public/brand/open-codex-ui-logo.svg" alt="Open Codex UI" width="520">
 </p>
 
-# open-codex-ui
+# Open Codex UI
 
-Remote-friendly Codex web workspace for continuing sessions from desktop and mobile browsers.
+A remote-friendly web workspace for continuing Codex sessions from desktop and
+mobile browsers.
 
-## Resume
-[一二Resume](https://baike.baidu.com/item/%E4%B8%80%E4%BA%8C/23434669)
+> [!IMPORTANT]
+> **Non-commercial use only.** This project is provided solely for learning,
+> research, personal use, and other non-commercial purposes. Commercial use
+> requires prior written permission from the copyright holder.
 
-## Requirements
+## Preview
 
-- [`uv`](https://docs.astral.sh/uv/) for running the published application
-- Python 3.12+, Node.js 20+, and `pnpm` only for source development
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Sube-py/open-codex-ui/main/web/public/screenshots/open-codex-ui-desktop.png" alt="Open Codex UI desktop workspace">
+</p>
 
-## Install
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Sube-py/open-codex-ui/main/web/public/screenshots/open-codex-ui-mobile-chat.png" alt="Open Codex UI mobile chat" width="300">
+  &nbsp;&nbsp;
+  <img src="https://raw.githubusercontent.com/Sube-py/open-codex-ui/main/web/public/screenshots/open-codex-ui-mobile-projects.png" alt="Open Codex UI mobile project drawer" width="300">
+</p>
 
-Run the published application without a permanent installation:
+## Quick Start
+
+Run the packaged application with [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
 uvx open-codex-ui
 ```
 
-The wheel includes the compiled frontend and starts in production mode. For a
-persistent command, install it as a uv tool:
+Open `http://127.0.0.1:13140`. The wheel already contains the compiled frontend.
+To accept connections from other devices, bind explicitly to the network:
 
 ```bash
-uv tool install open-codex-ui
-open-codex-ui
+uvx open-codex-ui serve --host 0.0.0.0 --port 13140
 ```
 
-For source development, install the backend dependencies:
+## Background Service
+
+Install the command persistently and register login startup:
 
 ```bash
-uv sync
+uvx open-codex-ui daemon install
 ```
 
-Codex workspace support uses the published `open-codex-bridge` package from PyPI.
+This installs `open-codex-ui` into uv's user bin directory and uses the native
+service manager for the current platform:
 
-Then install the frontend dependencies:
+| Platform | Service                                 |
+| -------- | --------------------------------------- |
+| macOS    | LaunchAgent in `~/Library/LaunchAgents` |
+| Linux    | `systemd --user` service                |
+| Windows  | Current-user Task Scheduler task        |
+
+After opening a new shell, manage the service directly:
 
 ```bash
-cd web
-pnpm install
+open-codex-ui daemon status
+open-codex-ui daemon stop
+open-codex-ui daemon start
+open-codex-ui daemon uninstall
 ```
+
+The service starts when the user logs in. Runtime state, retained environment,
+and logs live under `~/.yier/web/`. Run `daemon install` again to update its
+host, port, installed version, or captured environment.
 
 ## Authentication
 
-This app now supports password protection for deployed environments.
-
-Enable auth with either:
-
-- `YIER_AUTH_PASSWORD`
-- `YIER_AUTH_PASSWORD_HASH`
-
-Plain password example:
+Authentication is disabled unless a password variable is configured:
 
 ```bash
 export YIER_AUTH_PASSWORD='change-this-password'
+uvx open-codex-ui daemon install --host 0.0.0.0
 ```
 
-Hashed password example:
+For a hashed password:
 
 ```bash
-uv run python -c "from yier_web.auth import hash_password; print(hash_password('change-this-password'))"
+uv run --with open-codex-ui python -c "from yier_web.auth import hash_password; print(hash_password('change-this-password'))"
 export YIER_AUTH_PASSWORD_HASH='paste-generated-hash-here'
 ```
 
-Optional auth settings:
+| Variable                      | Purpose                                   |
+| ----------------------------- | ----------------------------------------- |
+| `YIER_AUTH_PASSWORD`          | Plain login password                      |
+| `YIER_AUTH_PASSWORD_HASH`     | Hashed login password                     |
+| `YIER_AUTH_SECRET`            | Additional session-cookie signing secret  |
+| `YIER_AUTH_SESSION_TTL_HOURS` | Session lifetime; defaults to `168` hours |
+| `YIER_CODEX_EMBED_TOKEN`      | Token for unauthenticated iframe access   |
 
-- `YIER_AUTH_SECRET`: optional extra signing secret for session cookies
-- `YIER_AUTH_SESSION_TTL_HOURS`: cookie lifetime in hours, default is `168`
-- `YIER_CODEX_EMBED_TOKEN`: token for unauthenticated Codex iframe access
+`daemon install` retains `HOME`, `PATH`, `CODEX_HOME`, and current `YIER_*`
+variables in a user-only environment file so they remain available after login.
 
-If neither password variable is set, authentication is disabled.
+## Development
 
-## Codex Iframe Embed
+Source development requires Python 3.12+, Node.js 20+, `uv`, and `pnpm`:
 
-See [IFRAME.md](./IFRAME.md) for iframe setup, authentication, and the
+```bash
+uv sync
+pnpm --dir web install
+uv run dev
+```
+
+The application remains at `http://127.0.0.1:13140`; in development mode the
+backend proxies frontend traffic to the Vite server on port `5173`.
+
+| Command                                | Purpose                                                     |
+| -------------------------------------- | ----------------------------------------------------------- |
+| `uv run dev`                           | Start frontend and backend with reload                      |
+| `uv run dev-web`                       | Start Vite only                                             |
+| `uv run dev-backend`                   | Start the backend only                                      |
+| `uv run publish`                       | Type-check and build frontend assets into `yier_web/static` |
+| `uv run open-codex-ui`                 | Run the source checkout in production mode                  |
+| `uv run pytest`                        | Run backend tests                                           |
+| `uv run python -m compileall yier_web` | Check Python compilation                                    |
+| `pnpm --dir web test:unit`             | Run frontend unit tests                                     |
+| `pnpm --dir web type-check`            | Run frontend type checking                                  |
+
+To test the production build from source:
+
+```bash
+uv run publish
+uv run open-codex-ui
+```
+
+Codex integration is provided by the published
+[`open-codex-bridge`](https://pypi.org/project/open-codex-bridge/) package.
+
+## Iframe Embedding
+
+See [IFRAME.md](./IFRAME.md) for iframe authentication, setup, and the
 `postMessage` API.
 
-## Development Startup
+## License
 
-Development mode is different from production:
-
-- The backend should run with `--debug`
-- The frontend should run with Vite dev server
-- In this mode, the backend proxies frontend requests to `http://127.0.0.1:5173`
-
-Recommended one-command startup:
-
-```bash
-uv run open-codex-ui-dev
-```
-
-This starts:
-
-- frontend: `pnpm dev`
-- backend: debug mode with reload
-
-If you prefer split terminals:
-
-Frontend only:
-
-```bash
-uv run open-codex-ui-dev-web
-```
-
-Backend only:
-
-```bash
-uv run open-codex-ui-dev-backend
-```
-
-You can also override backend bind settings:
-
-```bash
-uv run open-codex-ui-dev --host 127.0.0.1 --port 9999
-uv run open-codex-ui-dev-backend --host 127.0.0.1 --port 9999
-```
-
-Default address:
-
-- App: `http://127.0.0.1:9999`
-- Vite dev server: `http://127.0.0.1:5173`
-
-Notes:
-
-- Keep `pnpm dev` running, otherwise the backend cannot proxy the frontend in debug mode.
-- API requests still go through the Python server at port `9999`.
-
-## Production Startup
-
-The published wheel includes the compiled frontend and does not use the Vite
-dev server:
-
-```bash
-uvx open-codex-ui
-```
-
-The server listens on `127.0.0.1:9999` by default. Bind to the local network
-explicitly when needed:
-
-```bash
-uvx open-codex-ui --host 0.0.0.0 --port 9999
-```
-
-When running from a source checkout, build the frontend before starting:
-
-```bash
-uv run open-codex-ui-build-web
-uv run open-codex-ui-prod
-```
-
-In production mode:
-
-- The backend serves the compiled assets packaged under `yier_web/static`
-- No Vite proxy is used
-- Authentication should usually be enabled with `YIER_AUTH_PASSWORD` or `YIER_AUTH_PASSWORD_HASH`
-
-Production example:
-
-```bash
-export YIER_AUTH_PASSWORD='change-this-password'
-uvx open-codex-ui --host 0.0.0.0 --port 9999
-```
-
-## Common Commands
-
-Backend tests:
-
-```bash
-uv run --all-packages pytest
-```
-
-Targeted backend tests:
-
-```bash
-uv run --all-packages pytest tests/test_codex_backend.py tests/test_codex_workspace.py tests/test_app.py
-```
-
-Backend compile check:
-
-```bash
-uv run python -m compileall yier_web
-```
-
-Frontend unit tests:
-
-```bash
-cd web
-pnpm test:unit
-```
-
-Frontend type check:
-
-```bash
-cd web
-pnpm type-check
-```
-
-Frontend production build:
-
-```bash
-uv run open-codex-ui-build-web
-```
-
-## Startup Summary
-
-Development:
-
-```bash
-uv run open-codex-ui-dev
-```
-
-Production:
-
-```bash
-export YIER_AUTH_PASSWORD='change-this-password'
-uvx open-codex-ui --host 0.0.0.0 --port 9999
-```
-
-## Available uv Scripts
-
-Development:
-
-- `uv run open-codex-ui-dev`: start frontend and backend together
-- `uv run open-codex-ui-dev-web`: start Vite only
-- `uv run open-codex-ui-dev-backend`: start backend only in debug mode
-
-Production:
-
-- `uvx open-codex-ui`: run the published wheel in production mode
-- `uv run open-codex-ui-build-web`: build frontend assets
-- `uv run open-codex-ui-prod`: start backend in production mode
+Copyright 2026 Sube (zhangluguang). Licensed under the
+[PolyForm Noncommercial License 1.0.0](./LICENSE). Commercial use is not
+permitted without separate written authorization from the copyright holder.

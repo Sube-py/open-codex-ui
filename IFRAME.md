@@ -14,7 +14,7 @@ Embed the chat frame with only the token in the URL:
 ```html
 <iframe
   id="codex-frame"
-  src="http://127.0.0.1:9999/codex/embed?embed_token=change-this-embed-token"
+  src="http://127.0.0.1:13140/codex/embed?embed_token=change-this-embed-token"
   style="width: 100%; height: 720px; border: 0"
 ></iframe>
 ```
@@ -36,7 +36,7 @@ frame.contentWindow.postMessage(
     },
     prompt: 'Inspect this project',
   },
-  'http://127.0.0.1:9999',
+  'http://127.0.0.1:13140',
 )
 ```
 
@@ -49,7 +49,7 @@ frame.contentWindow.postMessage(
     threadId: 'thread-id-here',
     mode: 'plan',
   },
-  'http://127.0.0.1:9999',
+  'http://127.0.0.1:13140',
 )
 ```
 

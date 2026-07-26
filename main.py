@@ -22,7 +22,7 @@ def build_app():
 def build_server(
     *,
     host: str = "0.0.0.0",
-    port: int = 9999,
+    port: int = 13140,
     debug: bool = False,
     reload: bool = False,
 ) -> Granian:
@@ -43,7 +43,7 @@ def build_server(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the Open Codex UI web server.")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=9999)
+    parser.add_argument("--port", type=int, default=13140)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--reload", action="store_true")
     return parser.parse_args()
