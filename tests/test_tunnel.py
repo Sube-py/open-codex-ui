@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -110,7 +111,7 @@ def test_quick_tunnel_uses_default_origin_and_persists_no_secrets(
 
     assert commands == [
         [
-            "/cf/cloudflared",
+            str(Path("/cf/cloudflared")),
             "tunnel",
             "--no-autoupdate",
             "--pidfile",
@@ -149,7 +150,8 @@ def test_managed_remote_fetches_connector_token_into_temporary_file(
         command_seen.extend(command)
         connector_token_path = Path(command[command.index("--token-file") + 1])
         assert connector_token_path.read_text(encoding="utf-8") == "connector-secret"
-        assert connector_token_path.stat().st_mode & 0o777 == 0o600
+        if os.name == "posix":
+            assert connector_token_path.stat().st_mode & 0o777 == 0o600
         return FakeProcess()
 
     manager = TunnelManager(
