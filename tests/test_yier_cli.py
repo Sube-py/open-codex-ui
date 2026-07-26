@@ -26,7 +26,7 @@ def test_prod_starts_with_safe_production_defaults(
         return server
 
     monkeypatch.setattr(cli, "build_server", fake_build_server)
-    monkeypatch.setattr("sys.argv", ["yier"])
+    monkeypatch.setattr("sys.argv", ["open-codex-ui"])
 
     assert cli.prod() == 0
     assert captured == {

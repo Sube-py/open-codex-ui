@@ -4,7 +4,7 @@
 
 ## 职责
 
-- 根据 yier 持久化的 Codex 设置构建 `codex_ipc.CodexIpcConfig`。
+- 根据 yier 持久化的 Codex 设置构建 `codex_bridge.CodexIpcConfig`。
 - 为每个活跃 thread 保持一个长期存在的 `CodexIpcSession`。
 - 通过共享 session event hub 将 Codex session 事件分发给 WebSocket、
   SSE 监听者，以及未来的外部 channel sink。

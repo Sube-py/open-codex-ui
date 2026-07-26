@@ -9,7 +9,7 @@ import router from './router'
 import 'primeicons/primeicons.css'
 import './styles/index.css'
 
-const YierPreset = definePreset(Aura, {
+const OpenCodexUiPreset = definePreset(Aura, {
   semantic: {
     primary: {
       50: '{teal.50}',
@@ -68,7 +68,7 @@ const app = createApp(App)
 app.use(PrimeVue, {
   ripple: true,
   theme: {
-    preset: YierPreset,
+    preset: OpenCodexUiPreset,
     options: {
       darkModeSelector: '.app-dark',
       cssLayer: false,

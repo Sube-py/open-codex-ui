@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 300" role="img" aria-labelledby="title desc">
-  <title id="title">Yier logo</title>
-  <desc id="desc">Yier wordmark paired with the project icon.</desc>
+  <title id="title">Open Codex UI logo</title>
+  <desc id="desc">Open Codex UI wordmark paired with the project icon.</desc>
 
   <svg x="28" y="28" width="244" height="244" viewBox="0 0 512 512">
     <defs>
@@ -70,9 +70,9 @@
       x="335"
       y="160"
       font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
-      font-size="104"
+      font-size="82"
       font-weight="760"
-    >yier</text>
+    >Open Codex UI</text>
     <text
       x="341"
       y="208"

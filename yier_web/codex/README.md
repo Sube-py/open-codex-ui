@@ -5,7 +5,7 @@ This package contains the Codex-specific backend integration for the standalone
 
 ## Responsibilities
 
-- Build `codex_ipc.CodexIpcConfig` from stored yier Codex settings.
+- Build `codex_bridge.CodexIpcConfig` from stored yier Codex settings.
 - Keep one long-lived `CodexIpcSession` per active thread.
 - Fan out Codex session events to WebSocket subscribers, SSE listeners, and
   future channel sinks through a shared session event hub.

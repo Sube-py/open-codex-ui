@@ -118,7 +118,7 @@ describe('CodexRequestPanel', () => {
     expect(wrapper.get('[data-codex-request-actions]').text()).toContain('Submit')
   })
 
-  it('submits structured codex-ipc question answers', async () => {
+  it('submits structured open-codex-bridge question answers', async () => {
     const request: CodexPendingRequest = {
       id: 'request-1',
       method: 'item/tool/requestUserInput',

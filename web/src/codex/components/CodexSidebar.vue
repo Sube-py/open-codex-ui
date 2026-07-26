@@ -358,9 +358,9 @@ async function copyThreadId(threadId: string) {
       class="flex items-center justify-between gap-3 border-b border-[color:var(--app-border)] px-4 py-3"
     >
       <div class="flex min-w-0 items-center gap-3">
-        <img src="/brand/yier-icon.svg" alt="" class="h-9 w-9 shrink-0 rounded-xl" />
+        <img src="/brand/open-codex-ui-icon.svg" alt="" class="h-9 w-9 shrink-0 rounded-xl" />
         <div class="min-w-0">
-          <h1 class="m-0 truncate text-base font-semibold text-[color:var(--app-text)]">Yier</h1>
+          <h1 class="m-0 truncate text-base font-semibold text-[color:var(--app-text)]">Open Codex UI</h1>
           <p class="m-0 mt-0.5 truncate text-[0.72rem] text-[color:var(--app-text-soft)]">
             Codex anywhere
           </p>

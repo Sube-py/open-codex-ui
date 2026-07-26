@@ -1,11 +1,11 @@
 [project]
-name = "yier"
+name = "open-codex-ui"
 version = "0.1.1"
 description = "Remote-friendly web workspace for Codex sessions"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "codex-ipc>=0.1.8",
+    "open-codex-bridge>=0.1.9",
     "granian[reload]>=2.7.2",
     "httpx>=0.28.1",
     "litestar>=2.21.1",
@@ -14,12 +14,12 @@ dependencies = [
 ]
 
 [project.scripts]
-yier = "yier_web.cli:prod"
-yier-dev = "yier_web.cli:dev"
-yier-dev-backend = "yier_web.cli:dev_backend"
-yier-dev-web = "yier_web.cli:dev_web"
-yier-prod = "yier_web.cli:prod"
-yier-build-web = "yier_web.cli:build_web"
+open-codex-ui = "yier_web.cli:prod"
+open-codex-ui-dev = "yier_web.cli:dev"
+open-codex-ui-dev-backend = "yier_web.cli:dev_backend"
+open-codex-ui-dev-web = "yier_web.cli:dev_web"
+open-codex-ui-prod = "yier_web.cli:prod"
+open-codex-ui-build-web = "yier_web.cli:build_web"
 
 [build-system]
 requires = ["setuptools>=68"]

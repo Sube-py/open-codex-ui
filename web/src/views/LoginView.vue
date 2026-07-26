@@ -127,7 +127,7 @@ onMounted(async () => {
                 Access
               </p>
               <h2 class="m-0 text-[1.7rem] font-semibold text-[color:var(--app-text)]">
-                Unlock Yier
+                Unlock Open Codex UI
               </h2>
               <p class="m-0 text-[0.96rem] leading-[1.7] text-[color:var(--app-text-soft)]">
                 Use the deployment password configured on the server.

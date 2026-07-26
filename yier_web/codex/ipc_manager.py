@@ -11,7 +11,7 @@ import shlex
 import tomllib
 from typing import Callable
 
-from codex_ipc import (
+from codex_bridge import (
     AppServerConfig,
     AsyncCodexClient,
     CodexIpcConfig,
@@ -1069,13 +1069,13 @@ print(json.dumps({
 
         watcher_task = asyncio.create_task(
             self._watch_thread(thread_id, session),
-            name=f"codex-ipc-watch:{thread_id}",
+            name=f"open-codex-bridge-watch:{thread_id}",
         )
         event_watcher_task = None
         if self._session_has_native_events(session):
             event_watcher_task = asyncio.create_task(
                 self._watch_session_events(thread_id, session),
-                name=f"codex-ipc-events:{thread_id}",
+                name=f"open-codex-bridge-events:{thread_id}",
             )
         managed = ManagedCodexThread(
             session=session,
@@ -1368,8 +1368,8 @@ print(json.dumps({
             return self._remote_app_server_config(
                 remote_connection,
                 cwd=None,
-                client_name="yier_codex",
-                client_title=f"Yier Codex ({remote_connection.display_name})",
+                client_name="open_codex_ui",
+                client_title=f"Open Codex UI ({remote_connection.display_name})",
             )
 
         command = settings.launcher_command or "codex app-server --listen stdio://"
@@ -1383,8 +1383,8 @@ print(json.dumps({
             launch_args_override=args,
             cwd=str(self.config_service.project_root),
             env={"CODEX_HOME": str(codex_home)},
-            client_name="yier_codex",
-            client_title="Yier Codex",
+            client_name="open_codex_ui",
+            client_title="Open Codex UI",
         )
 
     def _remote_app_server_config(
@@ -1392,7 +1392,7 @@ print(json.dumps({
         connection: CodexRemoteConnection,
         *,
         cwd: str | None = None,
-        client_name: str = "yier_codex",
+        client_name: str = "open_codex_ui",
         client_title: str | None = None,
     ) -> AppServerConfig:
         return AppServerConfig(
@@ -1407,7 +1407,7 @@ print(json.dumps({
             ),
             cwd=cwd,
             client_name=client_name,
-            client_title=client_title or f"Yier Codex ({connection.display_name})",
+            client_title=client_title or f"Open Codex UI ({connection.display_name})",
         )
 
     def _connection_for_host(
@@ -1758,4 +1758,4 @@ print(json.dumps({
         )
 
     def _notify(self, message: str) -> None:
-        logger.info("codex-ipc: %s", message)
+        logger.info("open-codex-bridge: %s", message)

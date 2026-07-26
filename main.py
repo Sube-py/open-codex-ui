@@ -41,7 +41,7 @@ def build_server(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the yier web server.")
+    parser = argparse.ArgumentParser(description="Run the Open Codex UI web server.")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9999)
     parser.add_argument("--debug", action="store_true")

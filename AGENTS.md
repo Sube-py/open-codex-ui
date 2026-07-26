@@ -18,7 +18,7 @@
 ## Common Commands
 
 - Backend tests:
-  `uv run pytest`
+  `uv run --all-packages pytest`
 - Python compile sanity check:
   `uv run python -m compileall yier_web`
 - Frontend unit tests:
@@ -56,7 +56,7 @@
 
 ## Codex IPC Notes
 
-- Codex behavior is implemented through the published `codex-ipc` package.
+- Codex behavior is implemented through the published `open-codex-bridge` package.
 - The standalone Codex workspace is served from `/codex` and `/api/codex/ws`.
 - Codex thread state and commands belong in
   [`yier_web/codex/ipc_manager.py`](/Users/sube/me/yier/yier_web/codex/ipc_manager.py)

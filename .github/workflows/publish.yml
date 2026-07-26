@@ -58,7 +58,7 @@ jobs:
         run: pnpm --dir web build
 
       - name: Test backend
-        run: uv run pytest
+        run: uv run --all-packages pytest
 
   build:
     name: Build distributions
@@ -117,7 +117,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     environment:
       name: pypi
-      url: https://pypi.org/project/yier/
+      url: https://pypi.org/project/open-codex-ui/
     permissions:
       id-token: write
 

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="web/public/brand/yier-logo.svg" alt="Yier" width="520">
+  <img src="web/public/brand/open-codex-ui-logo.svg" alt="Open Codex UI" width="520">
 </p>
 
-# yier
+# open-codex-ui
 
 Remote-friendly Codex web workspace for continuing sessions from desktop and mobile browsers.
 
@@ -19,15 +19,15 @@ Remote-friendly Codex web workspace for continuing sessions from desktop and mob
 Run the published application without a permanent installation:
 
 ```bash
-uvx yier
+uvx open-codex-ui
 ```
 
 The wheel includes the compiled frontend and starts in production mode. For a
 persistent command, install it as a uv tool:
 
 ```bash
-uv tool install yier
-yier
+uv tool install open-codex-ui
+open-codex-ui
 ```
 
 For source development, install the backend dependencies:
@@ -36,7 +36,7 @@ For source development, install the backend dependencies:
 uv sync
 ```
 
-Codex workspace support uses the published `codex-ipc` package from PyPI.
+Codex workspace support uses the published `open-codex-bridge` package from PyPI.
 
 Then install the frontend dependencies:
 
@@ -77,127 +77,8 @@ If neither password variable is set, authentication is disabled.
 
 ## Codex Iframe Embed
 
-Yier exposes a chat-only Codex iframe at `/codex/embed`. The iframe does not
-show the Codex session list or the main app navigation.
-
-Set an embed token on the Yier server:
-
-```bash
-export YIER_CODEX_EMBED_TOKEN='change-this-embed-token'
-```
-
-Embed the chat frame with only the token in the URL:
-
-```html
-<iframe
-  id="codex-frame"
-  src="http://127.0.0.1:9999/codex/embed?embed_token=change-this-embed-token"
-  style="width: 100%; height: 720px; border: 0"
-></iframe>
-```
-
-All operational parameters are sent with `postMessage`; the iframe URL only carries
-`embed_token`. Start a thread, set plan mode, create a goal, and send an initial prompt:
-
-```js
-const frame = document.querySelector('#codex-frame')
-
-frame.contentWindow.postMessage(
-  {
-    type: 'yier:codex-start',
-    cwd: '/Users/me/project',
-    mode: 'plan',
-    goal: {
-      objective: 'Finish the migration',
-      tokenBudget: 12000,
-    },
-    prompt: 'Inspect this project',
-  },
-  'http://127.0.0.1:9999',
-)
-```
-
-Resume an existing Codex thread:
-
-```js
-frame.contentWindow.postMessage(
-  {
-    type: 'yier:codex-resume',
-    threadId: 'thread-id-here',
-    mode: 'plan',
-  },
-  'http://127.0.0.1:9999',
-)
-```
-
-`mode`, `goal`, and `prompt` are optional on both start and resume. The iframe
-selects the thread, applies mode and goal, then sends the prompt. `cwd` is resolved
-by the backend as the Codex working directory. Optional `commandId` values are
-echoed in `yier:codex-command-result` responses.
-
-The parent can also send these commands after a thread is active:
-
-- `yier:codex-send-prompt`: `prompt` plus optional model, reasoning, attachment,
-  and permission fields
-- `yier:codex-steer-prompt`: `prompt`
-- `yier:codex-enqueue-followup`: `prompt`
-- `yier:codex-remove-followup`: `messageId`
-- `yier:codex-interrupt-turn`
-- `yier:codex-compact-thread`
-- `yier:codex-set-mode`: `mode` (`build` or `plan`)
-- `yier:codex-set-goal`: `objective`, optional `tokenBudget`
-- `yier:codex-update-goal-status`: `status`
-- `yier:codex-clear-goal`
-- `yier:codex-submit-user-input`: `requestId`, `response`
-- `yier:codex-rename-thread`: `name`
-- `yier:codex-archive-thread`
-- `yier:codex-fork-thread`
-
-If authentication is enabled, the iframe page is public, but the Codex WebSocket
-still requires a valid `embed_token` unless the browser already has an
-authenticated Yier session.
-
-The iframe posts lifecycle messages to its parent window:
-
-```js
-window.addEventListener('message', (event) => {
-  if (event.data?.type === 'yier:codex-ready') {
-    console.log('Codex iframe is ready')
-  }
-  if (event.data?.type === 'yier:codex-thread-created') {
-    console.log(event.data.threadId, event.data.cwd, event.data.mode)
-  }
-  if (event.data?.type === 'yier:codex-thread-resumed') {
-    console.log(event.data.threadId, event.data.cwd, event.data.mode)
-  }
-  if (event.data?.type === 'yier:codex-prompt-sent') {
-    console.log(event.data.threadId, event.data.cwd, event.data.mode)
-  }
-  if (event.data?.type === 'yier:codex-command-result') {
-    console.log(event.data.commandId, event.data.command, event.data.ok)
-  }
-  if (event.data?.type === 'yier:codex-turn-state') {
-    console.log(event.data.threadId, event.data.turn)
-  }
-  if (event.data?.type === 'yier:codex-goal-state') {
-    console.log(event.data.threadId, event.data.goal, event.data.completedGoal)
-  }
-  if (event.data?.type === 'yier:codex-mode-changed') {
-    console.log(event.data.threadId, event.data.mode)
-  }
-  if (event.data?.type === 'yier:codex-user-input-request') {
-    console.log(event.data.threadId, event.data.request)
-  }
-  if (event.data?.type === 'yier:codex-error') {
-    console.error(event.data.message)
-  }
-})
-```
-
-The iframe also emits the compatibility event `yier:codex-status` and the queue
-event `yier:codex-followups-changed`. Goal completion is reported by
-`yier:codex-goal-state`; turn completion is reported independently by
-`yier:codex-turn-state`.
+See [IFRAME.md](./IFRAME.md) for iframe setup, authentication, and the
+`postMessage` API.
 
 ## Development Startup
 
@@ -210,7 +91,7 @@ Development mode is different from production:
 Recommended one-command startup:
 
 ```bash
-uv run yier-dev
+uv run open-codex-ui-dev
 ```
 
 This starts:
@@ -223,20 +104,20 @@ If you prefer split terminals:
 Frontend only:
 
 ```bash
-uv run yier-dev-web
+uv run open-codex-ui-dev-web
 ```
 
 Backend only:
 
 ```bash
-uv run yier-dev-backend
+uv run open-codex-ui-dev-backend
 ```
 
 You can also override backend bind settings:
 
 ```bash
-uv run yier-dev --host 127.0.0.1 --port 9999
-uv run yier-dev-backend --host 127.0.0.1 --port 9999
+uv run open-codex-ui-dev --host 127.0.0.1 --port 9999
+uv run open-codex-ui-dev-backend --host 127.0.0.1 --port 9999
 ```
 
 Default address:
@@ -255,21 +136,21 @@ The published wheel includes the compiled frontend and does not use the Vite
 dev server:
 
 ```bash
-uvx yier
+uvx open-codex-ui
 ```
 
 The server listens on `127.0.0.1:9999` by default. Bind to the local network
 explicitly when needed:
 
 ```bash
-uvx yier --host 0.0.0.0 --port 9999
+uvx open-codex-ui --host 0.0.0.0 --port 9999
 ```
 
 When running from a source checkout, build the frontend before starting:
 
 ```bash
-uv run yier-build-web
-uv run yier-prod
+uv run open-codex-ui-build-web
+uv run open-codex-ui-prod
 ```
 
 In production mode:
@@ -282,7 +163,7 @@ Production example:
 
 ```bash
 export YIER_AUTH_PASSWORD='change-this-password'
-uvx yier --host 0.0.0.0 --port 9999
+uvx open-codex-ui --host 0.0.0.0 --port 9999
 ```
 
 ## Common Commands
@@ -290,13 +171,13 @@ uvx yier --host 0.0.0.0 --port 9999
 Backend tests:
 
 ```bash
-uv run pytest
+uv run --all-packages pytest
 ```
 
 Targeted backend tests:
 
 ```bash
-uv run pytest tests/test_codex_backend.py tests/test_codex_workspace.py tests/test_app.py
+uv run --all-packages pytest tests/test_codex_backend.py tests/test_codex_workspace.py tests/test_app.py
 ```
 
 Backend compile check:
@@ -322,7 +203,7 @@ pnpm type-check
 Frontend production build:
 
 ```bash
-uv run yier-build-web
+uv run open-codex-ui-build-web
 ```
 
 ## Startup Summary
@@ -330,26 +211,26 @@ uv run yier-build-web
 Development:
 
 ```bash
-uv run yier-dev
+uv run open-codex-ui-dev
 ```
 
 Production:
 
 ```bash
 export YIER_AUTH_PASSWORD='change-this-password'
-uvx yier --host 0.0.0.0 --port 9999
+uvx open-codex-ui --host 0.0.0.0 --port 9999
 ```
 
 ## Available uv Scripts
 
 Development:
 
-- `uv run yier-dev`: start frontend and backend together
-- `uv run yier-dev-web`: start Vite only
-- `uv run yier-dev-backend`: start backend only in debug mode
+- `uv run open-codex-ui-dev`: start frontend and backend together
+- `uv run open-codex-ui-dev-web`: start Vite only
+- `uv run open-codex-ui-dev-backend`: start backend only in debug mode
 
 Production:
 
-- `uvx yier`: run the published wheel in production mode
-- `uv run yier-build-web`: build frontend assets
-- `uv run yier-prod`: start backend in production mode
+- `uvx open-codex-ui`: run the published wheel in production mode
+- `uv run open-codex-ui-build-web`: build frontend assets
+- `uv run open-codex-ui-prod`: start backend in production mode

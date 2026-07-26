@@ -4,7 +4,7 @@ requires-python = ">=3.12"
 
 [manifest]
 members = [
-    "yier",
+    "open-codex-ui",
     "yier-channel",
 ]
 
@@ -115,19 +115,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/3d/fa/656b739db8587d7b5dfa22e22ed02566950fbfbcdc20311993483657a5c0/click-8.3.1.tar.gz", hash = "sha256:12ff4785d337a1bb490bb7e9c2b1ee5da3112e94a8622f26a6c77f5d2fc6842a", size = 295065, upload-time = "2025-11-15T20:45:42.706Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/98/78/01c019cdb5d6498122777c1a43056ebb3ebfeef2076d9d026bfe15583b2b/click-8.3.1-py3-none-any.whl", hash = "sha256:981153a64e25f12d547d3426c367a4857371575ee7ad18df2a6183ab0545b2a6", size = 108274, upload-time = "2025-11-15T20:45:41.139Z" },
-]
-
-[[package]]
-name = "codex-ipc"
-version = "0.1.8"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "openai-codex" },
-    { name = "pydantic" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/b7/c2/7a55bd576920572f382e25622e88f1742976dcefe79c42c240b0fbe0da79/codex_ipc-0.1.8.tar.gz", hash = "sha256:3b78046636e724ffc612e9a45a343fff8c1ba1c4672400a450c3339f2004959b", size = 177714, upload-time = "2026-07-25T16:14:35.166Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c2/56/c8f4ca777bd6b49824cd8ec35f9f462d2de188282e47b084a4f1b4bdbc66/codex_ipc-0.1.8-py3-none-any.whl", hash = "sha256:12cbbaa0f1c9089c58119d6e054ee664565186ff2d0919c6e9cde6531a29f2a5", size = 60277, upload-time = "2026-07-25T16:14:34.075Z" },
 ]
 
 [[package]]
@@ -621,6 +608,54 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/8e/d6/9c4f366d6f9bb8f8fb5eae3acac471335c39510c42b537fd515213d7d8c3/multipart-1.3.1.tar.gz", hash = "sha256:211d7cfc1a7a43e75c4d24ee0e8e0f4f61d522f1a21575303ae85333dea687bf", size = 38929, upload-time = "2026-02-27T10:17:13.7Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/19/ed/e1f03200ee1f0bf4a2b9b72709afefbf5319b68df654e0b84b35c65613ee/multipart-1.3.1-py3-none-any.whl", hash = "sha256:a82b59e1befe74d3d30b3d3f70efd5a2eba4d938f845dcff9faace968888ff29", size = 15061, upload-time = "2026-02-27T10:17:11.943Z" },
+]
+
+[[package]]
+name = "open-codex-bridge"
+version = "0.1.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "openai-codex" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0f/52/797e92d0ff43b4d9a56fc9465745353486a7fd20eda24d0dd26891cbf89e/open_codex_bridge-0.1.9.tar.gz", hash = "sha256:1d330c537133ac47b14f78e3c82d4b230fbb0129e04a7c81447503393359c674", size = 177751, upload-time = "2026-07-26T03:24:29.012Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6f/43/a5499ff1fa1e994c843e0c1e40ee0953e8f8a587e29b4c732c5516117429/open_codex_bridge-0.1.9-py3-none-any.whl", hash = "sha256:9c7263624f4416ed181794b9cece2d38586987d55e55061bc8c66f544c2d537b", size = 60457, upload-time = "2026-07-26T03:24:27.602Z" },
+]
+
+[[package]]
+name = "open-codex-ui"
+version = "0.1.1"
+source = { editable = "." }
+dependencies = [
+    { name = "granian", extra = ["reload"] },
+    { name = "httpx" },
+    { name = "litestar" },
+    { name = "open-codex-bridge" },
+    { name = "pydantic" },
+    { name = "yier-agents" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "granian", extras = ["reload"], specifier = ">=2.7.2" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "litestar", specifier = ">=2.21.1" },
+    { name = "open-codex-bridge", specifier = ">=0.1.9" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "yier-agents", specifier = ">=0.1.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "ruff", specifier = ">=0.15.10" },
 ]
 
 [[package]]
@@ -1245,41 +1280,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b3/8f/705086c9d734d3b663af0e9bb3d4de6578d08f46b1b101c2442fd9aecaa2/win32_setctime-1.2.0.tar.gz", hash = "sha256:ae1fdf948f5640aae05c511ade119313fb6a30d7eabe25fef9764dca5873c4c0", size = 4867, upload-time = "2024-12-07T15:28:28.314Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/07/c6fe3ad3e685340704d314d765b7912993bcb8dc198f0e7a89382d37974b/win32_setctime-1.2.0-py3-none-any.whl", hash = "sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390", size = 4083, upload-time = "2024-12-07T15:28:26.465Z" },
-]
-
-[[package]]
-name = "yier"
-version = "0.1.1"
-source = { editable = "." }
-dependencies = [
-    { name = "codex-ipc" },
-    { name = "granian", extra = ["reload"] },
-    { name = "httpx" },
-    { name = "litestar" },
-    { name = "pydantic" },
-    { name = "yier-agents" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "codex-ipc", specifier = ">=0.1.8" },
-    { name = "granian", extras = ["reload"], specifier = ">=2.7.2" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "litestar", specifier = ">=2.21.1" },
-    { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "yier-agents", specifier = ">=0.1.3" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "ruff", specifier = ">=0.15.10" },
 ]
 
 [[package]]
