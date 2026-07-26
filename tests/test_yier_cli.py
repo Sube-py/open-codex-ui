@@ -118,3 +118,25 @@ def test_main_dispatches_daemon_commands(
 
     assert cli.main(arguments) == 0
     assert calls == [(method_name, expected_kwargs)]
+
+
+def test_main_dispatches_update(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    class FakeUpdater:
+        def update(self) -> int:
+            calls.append("update")
+            return 0
+
+    monkeypatch.setattr(cli, "UvToolUpdater", FakeUpdater)
+
+    assert cli.main(["update"]) == 0
+    assert calls == ["update"]
+
+
+def test_main_reports_installed_version(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["--version"])
+
+    assert exc_info.value.code == 0
+    assert capsys.readouterr().out.startswith("open-codex-ui 0.1.7")

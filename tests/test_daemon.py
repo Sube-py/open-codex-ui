@@ -9,7 +9,12 @@ import subprocess
 
 import pytest
 
-from yier_web.daemon import DaemonManager, ToolInstallResult, UvToolInstaller
+from yier_web.daemon import (
+    DaemonManager,
+    ToolInstallResult,
+    UvToolInstaller,
+    UvToolUpdater,
+)
 from yier_web.system_services import (
     LaunchdService,
     ServiceConfig,
@@ -150,6 +155,7 @@ class FakeService:
     def __init__(self) -> None:
         self.installed_config: ServiceConfig | None = None
         self.actions: list[str] = []
+        self.status_result = ServiceStatus(installed=True, running=True, pid=4242)
 
     def install(self, config: ServiceConfig) -> None:
         self.installed_config = config
@@ -162,7 +168,7 @@ class FakeService:
         self.actions.append("stop")
 
     def status(self) -> ServiceStatus:
-        return ServiceStatus(installed=True, running=True, pid=4242)
+        return self.status_result
 
     def uninstall(self) -> None:
         self.actions.append("uninstall")
@@ -203,6 +209,123 @@ def test_daemon_install_persists_service_configuration_and_environment(
         "port": 13140,
         "service": "test service",
     }
+
+
+def test_uv_tool_updater_updates_persistent_command_and_restarts_service(
+    tmp_path: Path,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    executable_name = "open-codex-ui.exe" if os.name == "nt" else "open-codex-ui"
+    executable = bin_dir / executable_name
+    executable.touch()
+    uv_path = tmp_path / "uv"
+    calls: list[list[str]] = []
+    service = FakeService()
+
+    def runner(
+        command: list[str],
+        *,
+        check: bool = True,
+        capture_output: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        stdout = str(bin_dir) if command[-2:] == ["dir", "--bin"] else ""
+        return completed(command, stdout=stdout)
+
+    updater = UvToolUpdater(
+        tmp_path / "runtime",
+        home_dir=tmp_path,
+        service=service,
+        uv_path=uv_path,
+        runner=runner,
+    )
+
+    assert updater.update() == 0
+    assert calls == [
+        [str(uv_path), "tool", "dir", "--bin"],
+        [
+            str(uv_path),
+            "tool",
+            "install",
+            "--force",
+            "--upgrade",
+            "open-codex-ui",
+        ],
+    ]
+    assert service.actions == ["stop", "start"]
+
+
+def test_uv_tool_updater_skips_transient_installation(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uv_path = tmp_path / "uv"
+    calls: list[list[str]] = []
+    service = FakeService()
+
+    def runner(
+        command: list[str],
+        *,
+        check: bool = True,
+        capture_output: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return completed(command, stdout=str(bin_dir))
+
+    updater = UvToolUpdater(
+        tmp_path / "runtime",
+        home_dir=tmp_path,
+        service=service,
+        uv_path=uv_path,
+        runner=runner,
+    )
+
+    assert updater.update() == 0
+    assert calls == [[str(uv_path), "tool", "dir", "--bin"]]
+    assert service.actions == []
+    assert "No persistent Open Codex UI installation" in capsys.readouterr().out
+
+
+def test_uv_tool_updater_does_not_start_stopped_service(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    executable_name = "open-codex-ui.exe" if os.name == "nt" else "open-codex-ui"
+    (bin_dir / executable_name).touch()
+    uv_path = tmp_path / "uv"
+    calls: list[list[str]] = []
+    service = FakeService()
+    service.status_result = ServiceStatus(installed=True, running=False)
+
+    def runner(
+        command: list[str],
+        *,
+        check: bool = True,
+        capture_output: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return completed(command, stdout=str(bin_dir))
+
+    updater = UvToolUpdater(
+        tmp_path / "runtime",
+        home_dir=tmp_path,
+        service=service,
+        uv_path=uv_path,
+        runner=runner,
+    )
+
+    assert updater.update() == 0
+    assert calls[-1] == [
+        str(uv_path),
+        "tool",
+        "install",
+        "--force",
+        "--upgrade",
+        "open-codex-ui",
+    ]
+    assert service.actions == []
 
 
 def test_launchd_service_writes_launch_agent_and_reports_pid(tmp_path: Path) -> None:

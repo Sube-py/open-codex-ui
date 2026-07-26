@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import argparse
+from importlib.metadata import version as distribution_version
 import os
 from pathlib import Path
 import signal
@@ -12,7 +13,7 @@ import time
 from granian import Granian, loops
 from granian.constants import Interfaces
 
-from yier_web.daemon import DaemonManager, load_service_environment
+from yier_web.daemon import DaemonManager, UvToolUpdater, load_service_environment
 from yier_web.system_services import ServiceError
 
 
@@ -101,12 +102,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     if not arguments:
         arguments = ["serve"]
-    elif arguments[0].startswith("-") and arguments[0] not in {"-h", "--help"}:
+    elif arguments[0].startswith("-") and arguments[0] not in {
+        "-h",
+        "--help",
+        "--version",
+    }:
         arguments.insert(0, "serve")
     args = parser.parse_args(arguments)
 
     if args.command == "serve":
         return _serve(host=args.host, port=args.port)
+    if args.command == "update":
+        try:
+            return UvToolUpdater().update()
+        except (OSError, ServiceError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
     if args.command == "daemon":
         try:
             manager = DaemonManager()
@@ -174,8 +185,14 @@ def _redirect_service_output(log_path: Path) -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
+        prog="open-codex-ui",
         description="Run and manage the Open Codex UI production server.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {distribution_version('open-codex-ui')}",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -186,6 +203,12 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     _add_server_arguments(serve_parser)
+
+    subparsers.add_parser(
+        "update",
+        help="update the persistent installation",
+        description="Update the persistent uv tool and restart a running service.",
+    )
 
     daemon_parser = subparsers.add_parser(
         "daemon",

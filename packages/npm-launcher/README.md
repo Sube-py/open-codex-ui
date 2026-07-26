@@ -6,6 +6,7 @@ Run the packaged Open Codex UI application through Node.js:
 npx open-codex-ui
 npx open-codex-ui serve --host 0.0.0.0 --port 13140
 npx open-codex-ui daemon install
+npx open-codex-ui update
 ```
 
 This package is a small launcher, not a second implementation. It forwards all

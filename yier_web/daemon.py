@@ -48,14 +48,9 @@ class UvToolInstaller:
         self.runner = runner
 
     def install(self) -> ToolInstallResult:
-        uv_path = self.uv_path or self._find_uv()
-        bin_result = self.runner(
-            [str(uv_path), "tool", "dir", "--bin"],
-            capture_output=True,
-        )
-        bin_dir = Path(bin_result.stdout.strip()).expanduser().resolve()
-        executable_name = f"{PACKAGE_NAME}.exe" if os.name == "nt" else PACKAGE_NAME
-        executable = bin_dir / executable_name
+        uv_path = _resolve_uv_path(self.uv_path)
+        executable = _resolve_tool_executable(uv_path, self.runner)
+        bin_dir = executable.parent
         if not self._running_persistent_command(executable):
             requirement = f"{PACKAGE_NAME}=={self.package_version}"
             self.runner([str(uv_path), "tool", "install", "--force", requirement])
@@ -76,12 +71,6 @@ class UvToolInstaller:
             == executable.expanduser().resolve()
         )
 
-    def _find_uv(self) -> Path:
-        executable = shutil.which("uv")
-        if executable is None:
-            raise ServiceError("uv is required to install the persistent command.")
-        return Path(executable)
-
     def _path_contains(self, bin_dir: Path) -> bool:
         for entry in self.environment.get("PATH", "").split(os.pathsep):
             if not entry:
@@ -89,6 +78,72 @@ class UvToolInstaller:
             if Path(entry).expanduser().resolve() == bin_dir:
                 return True
         return False
+
+
+class UvToolUpdater:
+    def __init__(
+        self,
+        runtime_dir: Path | None = None,
+        *,
+        home_dir: Path | None = None,
+        service: SystemService | None = None,
+        uv_path: Path | None = None,
+        runner=run_command,
+    ) -> None:
+        self.home_dir = (home_dir or Path.home()).resolve()
+        self.runtime_dir = runtime_dir or self.home_dir / ".yier" / "web"
+        self.service = service or build_system_service(
+            home_dir=self.home_dir,
+            runtime_dir=self.runtime_dir,
+        )
+        self.uv_path = uv_path
+        self.runner = runner
+
+    def update(self) -> int:
+        uv_path = _resolve_uv_path(self.uv_path)
+        executable = _resolve_tool_executable(uv_path, self.runner)
+        if not executable.exists():
+            print("No persistent Open Codex UI installation was found.")
+            print("uvx and npx resolve the requested release when they run.")
+            return 0
+
+        service_status = self.service.status()
+        self.runner(
+            [
+                str(uv_path),
+                "tool",
+                "install",
+                "--force",
+                "--upgrade",
+                PACKAGE_NAME,
+            ]
+        )
+        print(f"Updated persistent command: {executable}")
+
+        if service_status.installed and service_status.running:
+            self.service.stop()
+            self.service.start()
+            print(f"Restarted {self.service.name}.")
+        return 0
+
+
+def _resolve_uv_path(uv_path: Path | None) -> Path:
+    if uv_path is not None:
+        return uv_path
+    executable = shutil.which("uv")
+    if executable is None:
+        raise ServiceError("uv is required to manage the persistent command.")
+    return Path(executable)
+
+
+def _resolve_tool_executable(uv_path: Path, runner) -> Path:
+    bin_result = runner(
+        [str(uv_path), "tool", "dir", "--bin"],
+        capture_output=True,
+    )
+    bin_dir = Path(bin_result.stdout.strip()).expanduser().resolve()
+    executable_name = f"{PACKAGE_NAME}.exe" if os.name == "nt" else PACKAGE_NAME
+    return bin_dir / executable_name
 
 
 class DaemonManager:

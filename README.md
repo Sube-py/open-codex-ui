@@ -77,7 +77,21 @@ open-codex-ui daemon uninstall
 
 The service starts when the user logs in. Runtime state, retained environment,
 and logs live under `~/.yier/web/`. Run `daemon install` again to update its
-host, port, installed version, or captured environment.
+host, port, or captured environment; use `update` for application versions.
+
+## Updating
+
+Update a persistent installation to the latest stable release:
+
+```bash
+open-codex-ui update
+# or
+npx open-codex-ui update
+```
+
+If the login service is running, it is restarted after the update. Plain
+`uvx` and `npx` runs resolve their release when launched, so the command makes
+no persistent changes when no uv tool installation exists.
 
 ## Authentication
 
