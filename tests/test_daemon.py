@@ -16,6 +16,7 @@ from yier_web.system_services import (
     ServiceStatus,
     SystemdUserService,
     WindowsTaskService,
+    _systemd_quote,
     build_system_service,
 )
 
@@ -66,6 +67,7 @@ def test_uv_tool_installer_persists_current_version_and_updates_path(
     executable_name = "open-codex-ui.exe" if os.name == "nt" else "open-codex-ui"
     (bin_dir / executable_name).touch()
     calls: list[list[str]] = []
+    uv_path = Path("/usr/local/bin/uv")
 
     def runner(
         command: list[str],
@@ -79,7 +81,7 @@ def test_uv_tool_installer_persists_current_version_and_updates_path(
 
     installer = UvToolInstaller(
         package_version="0.1.5",
-        uv_path=Path("/usr/local/bin/uv"),
+        uv_path=uv_path,
         current_executable=tmp_path / "uvx-cache" / "open-codex-ui",
         environment={"PATH": "/usr/bin"},
         runner=runner,
@@ -92,15 +94,15 @@ def test_uv_tool_installer_persists_current_version_and_updates_path(
         shell_updated=True,
     )
     assert calls == [
-        ["/usr/local/bin/uv", "tool", "dir", "--bin"],
+        [str(uv_path), "tool", "dir", "--bin"],
         [
-            "/usr/local/bin/uv",
+            str(uv_path),
             "tool",
             "install",
             "--force",
             "open-codex-ui==0.1.5",
         ],
-        ["/usr/local/bin/uv", "tool", "update-shell"],
+        [str(uv_path), "tool", "update-shell"],
     ]
 
 
@@ -111,6 +113,7 @@ def test_uv_tool_installer_does_not_replace_its_running_tool(tmp_path: Path) -> 
     executable = bin_dir / executable_name
     executable.touch()
     calls: list[list[str]] = []
+    uv_path = Path("/usr/local/bin/uv")
 
     def runner(
         command: list[str],
@@ -123,14 +126,14 @@ def test_uv_tool_installer_does_not_replace_its_running_tool(tmp_path: Path) -> 
 
     installer = UvToolInstaller(
         package_version="0.1.5",
-        uv_path=Path("/usr/local/bin/uv"),
+        uv_path=uv_path,
         current_executable=executable,
         environment={"PATH": str(bin_dir)},
         runner=runner,
     )
 
     assert installer.install() == ToolInstallResult(executable, shell_updated=False)
-    assert calls == [["/usr/local/bin/uv", "tool", "dir", "--bin"]]
+    assert calls == [[str(uv_path), "tool", "dir", "--bin"]]
 
 
 @dataclass
@@ -243,7 +246,7 @@ def test_systemd_service_writes_and_enables_user_unit(tmp_path: Path) -> None:
     service.install(config)
 
     unit = service.unit_path.read_text(encoding="utf-8")
-    assert f'ExecStart="{config.executable}" "_service"' in unit
+    assert f'ExecStart={_systemd_quote(str(config.executable))} "_service"' in unit
     assert "Restart=on-failure" in unit
     assert "WantedBy=default.target" in unit
     assert runner.calls[-1] == [

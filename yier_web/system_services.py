@@ -104,7 +104,8 @@ class LaunchdService(SystemService):
     ) -> None:
         self.home_dir = home_dir
         self.runtime_dir = runtime_dir
-        self.uid = os.getuid() if uid is None else uid
+        getuid = getattr(os, "getuid", None)
+        self.uid = getuid() if uid is None and getuid is not None else (uid or 0)
         self.runner = runner
         self.plist_path = home_dir / "Library" / "LaunchAgents" / f"{self.label}.plist"
 
