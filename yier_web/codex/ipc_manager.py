@@ -13,7 +13,6 @@ from typing import Callable
 
 from codex_bridge import (
     AppServerConfig,
-    AsyncCodexClient,
     CodexIpcConfig,
     CodexIpcSession,
     JsonDict,
@@ -219,6 +218,7 @@ class CodexIpcManager:
             *(
                 self._host_id_for_connection(connection.id)
                 for connection in settings.remote_connections
+                if connection.auto_connect
             ),
         ]
         results = await asyncio.gather(
@@ -271,6 +271,32 @@ class CodexIpcManager:
 
     async def activate_remote_connection(self, connection_id: str) -> None:
         self.config_service.set_active_codex_remote_connection(connection_id)
+
+    async def set_remote_connection_auto_connect(
+        self,
+        connection_id: str,
+        *,
+        auto_connect: bool,
+    ) -> CodexRemoteConnection:
+        connection = self.config_service.set_codex_remote_connection_auto_connect(
+            connection_id,
+            auto_connect,
+        )
+        host_id = self._host_id_for_connection(connection_id)
+        await self._restart_host_sessions(host_id)
+        if auto_connect:
+            self._set_remote_connection_status(
+                connection_id,
+                "connecting",
+                "Connecting",
+            )
+        else:
+            self._set_remote_connection_status(
+                connection_id,
+                "disconnected",
+                "Automatic connection is off",
+            )
+        return connection
 
     async def restart_remote_connection(self, connection_id: str) -> None:
         if self._remote_connection_by_id(connection_id) is None:
@@ -337,42 +363,6 @@ class CodexIpcManager:
             ok=ok,
             detail=detail or ("Codex installed." if ok else "Codex install failed."),
         )
-
-    async def login_remote_api_key(
-        self,
-        connection_id: str,
-        api_key: str,
-    ) -> CodexRemoteConnectionTestResponse:
-        connection = self._remote_connection_by_id(connection_id)
-        if connection is None:
-            raise ValueError("Remote connection not found.")
-        self._set_remote_connection_status(
-            connection_id,
-            "connecting",
-            "Signing in with API key",
-        )
-        try:
-            async with AsyncCodexClient(
-                config=self._remote_app_server_config(connection)
-            ) as client:
-                await client.initialize()
-                await client.account_login_start(
-                    {
-                        "type": "apiKey",
-                        "apiKey": api_key,
-                    }
-                )
-                account = await client.account_read({"refreshToken": False})
-        except Exception as exc:
-            detail = _compact_text(exc, limit=180) or exc.__class__.__name__
-            self._set_remote_connection_status(connection_id, "error", detail)
-            return CodexRemoteConnectionTestResponse(ok=False, detail=detail)
-        account_type = (
-            account.account.root.type if account.account is not None else "unknown"
-        )
-        detail = f"Signed in with {account_type}."
-        self._set_remote_connection_status(connection_id, "connected", detail)
-        return CodexRemoteConnectionTestResponse(ok=True, detail=detail)
 
     async def test_remote_connection(
         self,
@@ -456,7 +446,7 @@ class CodexIpcManager:
         if connection is None:
             raise ValueError("A remote host is required.")
 
-        requested_path = path or connection.remote_path or "~"
+        requested_path = path or "~"
         script = """
 import json
 import os
@@ -1403,7 +1393,7 @@ print(json.dumps({
                     port=connection.ssh_port,
                     identity=connection.identity_file or None,
                 ),
-                remote_cwd=connection.remote_path or "~",
+                remote_cwd="~",
             ),
             cwd=cwd,
             client_name=client_name,
@@ -1480,6 +1470,12 @@ print(json.dumps({
         for stale_id in set(self._remote_connection_statuses) - known_ids:
             self._remote_connection_statuses.pop(stale_id, None)
         for connection in settings.remote_connections:
+            if not connection.auto_connect:
+                statuses[connection.id] = CodexRemoteConnectionStatus(
+                    status="disconnected",
+                    detail="Automatic connection is off",
+                )
+                continue
             status = self._remote_connection_statuses.get(connection.id)
             if status is None:
                 status = CodexRemoteConnectionStatus(
@@ -1553,7 +1549,7 @@ print(json.dumps({
         settings = self.config_service.load_web_settings().codex
         remote_connection = self._connection_for_host(host_id, settings=settings)
         if remote_connection is not None:
-            resolved_project_path = project_path or remote_connection.remote_path or "~"
+            resolved_project_path = project_path or "~"
         else:
             resolved_project_path = self.config_service.resolve_project_path(
                 project_path
@@ -1567,7 +1563,7 @@ print(json.dumps({
     ) -> str:
         remote_connection = self._connection_for_host(host_id, settings=settings)
         if remote_connection is not None:
-            return remote_connection.remote_path or "~"
+            return "~"
         return str(self.config_service.project_root)
 
     def _default_thread_params(

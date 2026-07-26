@@ -1,20 +1,23 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import SelectButton from 'primevue/selectbutton'
+import ToggleSwitch from 'primevue/toggleswitch'
 
 import { apiPost, apiPut } from '../../lib/api'
 import type {
   CodexRemoteConnection,
+  CodexRemoteConnectionAutoConnectPayload,
   CodexRemoteConnectionPayload,
   CodexRemoteConnectionResponse,
   CodexRemoteConnectionTestResponse,
   CodexWorkspaceResponse,
 } from '../types'
 import CodexHostPathPicker from './CodexHostPathPicker.vue'
+import CodexSshConfigAliasSelect from './CodexSshConfigAliasSelect.vue'
 
 type RemoteConnectionMode = 'direct' | 'alias'
 
@@ -33,13 +36,12 @@ const identityFilePickerVisible = ref(false)
 const remoteError = ref('')
 const remoteTestingId = ref('')
 const remoteInstallingId = ref('')
+const remoteTogglingId = ref('')
+const remoteAutoConnectOverrides = ref<Record<string, boolean>>({})
 const remoteSaving = ref(false)
 const remoteEditingId = ref('')
 const remoteDraft = ref<CodexRemoteConnectionPayload>(emptyRemoteDraft())
 const remotePortDraft = ref('')
-const apiKeyDialogConnection = ref<CodexRemoteConnection | null>(null)
-const apiKeyDraft = ref('')
-const apiKeySaving = ref(false)
 const remoteConnectionModeOptions = [
   { label: 'Direct SSH', value: 'direct' },
   { label: 'SSH config alias', value: 'alias' },
@@ -50,11 +52,21 @@ const remoteStatuses = computed(() => props.workspace.remote_connection_statuses
 const identityFilePickerPath = computed(
   () => parentDirectory(remoteDraft.value.identity_file) || '~/.ssh',
 )
-const apiKeyDialogTitle = computed(() =>
-  apiKeyDialogConnection.value
-    ? `Sign in to ${remoteTitle(apiKeyDialogConnection.value)}`
-    : 'Sign in',
-)
+
+watch(remoteConnections, (connections) => {
+  const overrides = { ...remoteAutoConnectOverrides.value }
+  let changed = false
+  for (const connection of connections) {
+    if (overrides[connection.id] !== connection.auto_connect) {
+      continue
+    }
+    delete overrides[connection.id]
+    changed = true
+  }
+  if (changed) {
+    remoteAutoConnectOverrides.value = overrides
+  }
+})
 
 function emptyRemoteDraft(): CodexRemoteConnectionPayload {
   return {
@@ -64,7 +76,6 @@ function emptyRemoteDraft(): CodexRemoteConnectionPayload {
     ssh_port: null,
     ssh_alias: '',
     identity_file: '',
-    remote_path: '~',
     auto_connect: false,
   }
 }
@@ -76,7 +87,7 @@ function remoteTitle(connection: CodexRemoteConnection) {
 function remoteSubtitle(connection: CodexRemoteConnection) {
   const target = connection.ssh_alias || directTarget(connection)
   const port = connection.ssh_alias || !connection.ssh_port ? '' : `:${connection.ssh_port}`
-  return `${target}${port} · ${connection.remote_path || '~'}`
+  return `${target}${port}`
 }
 
 function directTarget(connection: Pick<CodexRemoteConnection, 'ssh_host' | 'ssh_username'>) {
@@ -122,6 +133,10 @@ function remoteStatusClass(connection: CodexRemoteConnection) {
   return 'bg-[color:var(--app-neutral-status-bg)] text-[color:var(--app-neutral-status-text)]'
 }
 
+function remoteAutoConnect(connection: CodexRemoteConnection) {
+  return remoteAutoConnectOverrides.value[connection.id] ?? connection.auto_connect
+}
+
 function openAddRemoteDialog() {
   remoteEditingId.value = ''
   remoteConnectionMode.value = 'direct'
@@ -141,7 +156,6 @@ function openEditRemoteDialog(connection: CodexRemoteConnection) {
     ssh_port: connection.ssh_port ?? null,
     ssh_alias: connection.ssh_alias,
     identity_file: connection.identity_file,
-    remote_path: connection.remote_path || '~',
     auto_connect: connection.auto_connect,
   }
   remotePortDraft.value = connection.ssh_port ? String(connection.ssh_port) : ''
@@ -190,17 +204,6 @@ function parentDirectory(path: string) {
 function selectIdentityFile(path: string) {
   remoteDraft.value.identity_file = path
   identityFilePickerVisible.value = false
-}
-
-function openApiKeyDialog(connection: CodexRemoteConnection) {
-  apiKeyDialogConnection.value = connection
-  apiKeyDraft.value = ''
-  remoteError.value = ''
-}
-
-function closeApiKeyDialog() {
-  apiKeyDialogConnection.value = null
-  apiKeyDraft.value = ''
 }
 
 async function saveRemoteConnection() {
@@ -275,6 +278,32 @@ async function restartRemoteConnection(connection: CodexRemoteConnection) {
   }
 }
 
+async function toggleRemoteConnection(connection: CodexRemoteConnection, autoConnect: boolean) {
+  remoteTogglingId.value = connection.id
+  remoteAutoConnectOverrides.value = {
+    ...remoteAutoConnectOverrides.value,
+    [connection.id]: autoConnect,
+  }
+  remoteError.value = ''
+  try {
+    const payload = {
+      auto_connect: autoConnect,
+    } satisfies CodexRemoteConnectionAutoConnectPayload
+    await apiPut<CodexRemoteConnectionResponse>(
+      `/api/codex/remote-connections/${encodeURIComponent(connection.id)}/auto-connect`,
+      payload,
+    )
+    emit('remoteConnectionChanged')
+  } catch (error) {
+    const overrides = { ...remoteAutoConnectOverrides.value }
+    delete overrides[connection.id]
+    remoteAutoConnectOverrides.value = overrides
+    remoteError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    remoteTogglingId.value = ''
+  }
+}
+
 async function installRemoteCodex(connection: CodexRemoteConnection) {
   remoteInstallingId.value = connection.id
   remoteError.value = ''
@@ -289,30 +318,6 @@ async function installRemoteCodex(connection: CodexRemoteConnection) {
     remoteError.value = error instanceof Error ? error.message : String(error)
   } finally {
     remoteInstallingId.value = ''
-  }
-}
-
-async function loginRemoteApiKey() {
-  const connection = apiKeyDialogConnection.value
-  const apiKey = apiKeyDraft.value.trim()
-  if (!connection || !apiKey) {
-    remoteError.value = 'API key is required.'
-    return
-  }
-  apiKeySaving.value = true
-  remoteError.value = ''
-  try {
-    const result = await apiPost<CodexRemoteConnectionTestResponse>(
-      `/api/codex/remote-connections/${encodeURIComponent(connection.id)}/login-api-key`,
-      { apiKey },
-    )
-    remoteError.value = result.ok ? result.detail : result.detail
-    closeApiKeyDialog()
-    emit('remoteConnectionChanged')
-  } catch (error) {
-    remoteError.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    apiKeySaving.value = false
   }
 }
 
@@ -341,6 +346,7 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
         </p>
       </div>
       <Button
+        v-tooltip.left="'Add an SSH server connection'"
         icon="pi pi-plus"
         severity="secondary"
         text
@@ -357,7 +363,7 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
       <div
         v-for="connection in remoteConnections"
         :key="connection.id"
-        class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-[color:var(--app-border)] bg-[color:var(--app-surface-raised)] px-3 py-2.5"
+        class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-[color:var(--app-border)] bg-[color:var(--app-surface-raised)] px-3 py-2.5 max-sm:grid-cols-1"
         data-codex-remote-row
       >
         <div class="min-w-0">
@@ -376,8 +382,22 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
             {{ remoteStatusLabel(connection) }}
           </span>
         </div>
-        <div class="flex items-center gap-0.5">
+        <div class="flex items-center justify-end gap-0.5">
+          <ToggleSwitch
+            v-tooltip.top="
+              remoteAutoConnect(connection)
+                ? 'Disconnect this SSH server'
+                : 'Connect to this SSH server'
+            "
+            :model-value="remoteAutoConnect(connection)"
+            :disabled="busy || remoteTogglingId === connection.id"
+            :aria-label="`${remoteAutoConnect(connection) ? 'Disconnect from' : 'Connect to'} ${remoteTitle(connection)}`"
+            class="mr-2 shrink-0"
+            data-codex-toggle-remote
+            @update:model-value="toggleRemoteConnection(connection, Boolean($event))"
+          />
           <Button
+            v-tooltip.top="'Restart the remote Codex connection'"
             icon="pi pi-refresh"
             severity="secondary"
             text
@@ -386,10 +406,11 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
             class="!h-6 !w-6 !min-w-6 !p-0 !text-[0.68rem]"
             aria-label="Restart SSH connection"
             data-codex-restart-remote
-            :disabled="busy"
+            :disabled="busy || !remoteAutoConnect(connection)"
             @click.stop="restartRemoteConnection(connection)"
           />
           <Button
+            v-tooltip.top="'Install Codex on this server'"
             icon="pi pi-download"
             severity="secondary"
             text
@@ -403,18 +424,7 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
             @click.stop="installRemoteCodex(connection)"
           />
           <Button
-            icon="pi pi-key"
-            severity="secondary"
-            text
-            rounded
-            size="small"
-            class="!h-6 !w-6 !min-w-6 !p-0 !text-[0.68rem]"
-            aria-label="Sign in with API key"
-            data-codex-login-api-key-remote
-            :disabled="busy"
-            @click.stop="openApiKeyDialog(connection)"
-          />
-          <Button
+            v-tooltip.top="'Test SSH and Codex availability'"
             icon="pi pi-verified"
             severity="secondary"
             text
@@ -428,6 +438,7 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
             @click.stop="testRemoteConnection(connection)"
           />
           <Button
+            v-tooltip.top="'Edit this SSH connection'"
             icon="pi pi-pencil"
             severity="secondary"
             text
@@ -440,6 +451,7 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
             @click.stop="openEditRemoteDialog(connection)"
           />
           <Button
+            v-tooltip.top="'Delete this SSH connection'"
             icon="pi pi-trash"
             severity="secondary"
             text
@@ -491,26 +503,34 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
         />
       </div>
       <template v-if="remoteConnectionMode === 'direct'">
-        <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
+        <label class="grid min-w-0 gap-1 text-sm font-medium text-[color:var(--app-text)]">
           Host
           <InputText
             v-model="remoteDraft.ssh_host"
-            placeholder="100.64.0.93 or server.example.com"
+            class="min-w-0 w-full"
+            placeholder="server.example.com"
             data-codex-remote-host
           />
         </label>
-        <div class="grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
-          <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
+        <div class="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(5rem,7rem)] gap-2">
+          <label class="grid min-w-0 gap-1 text-sm font-medium text-[color:var(--app-text)]">
             Username
             <InputText
               v-model="remoteDraft.ssh_username"
+              class="min-w-0 w-full"
               placeholder="optional"
               data-codex-remote-username
             />
           </label>
-          <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
+          <label class="grid min-w-0 gap-1 text-sm font-medium text-[color:var(--app-text)]">
             Port
-            <InputText v-model="remotePortDraft" placeholder="22" data-codex-remote-port />
+            <InputText
+              v-model="remotePortDraft"
+              class="min-w-0 w-full"
+              inputmode="numeric"
+              placeholder="22"
+              data-codex-remote-port
+            />
           </label>
         </div>
         <div class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
@@ -524,6 +544,7 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
               data-codex-remote-identity
             />
             <Button
+              v-tooltip.top="'Choose a private key from this computer'"
               icon="pi pi-folder-open"
               severity="secondary"
               outlined
@@ -535,18 +556,7 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
           </span>
         </div>
       </template>
-      <label v-else class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
-        SSH config alias
-        <InputText
-          v-model="remoteDraft.ssh_alias"
-          placeholder="Host name from ~/.ssh/config"
-          data-codex-remote-alias
-        />
-      </label>
-      <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
-        Remote path
-        <InputText v-model="remoteDraft.remote_path" data-codex-remote-path />
-      </label>
+      <CodexSshConfigAliasSelect v-else v-model="remoteDraft.ssh_alias" />
       <p
         v-if="remoteError"
         class="m-0 text-sm text-[color:var(--app-danger-text)]"
@@ -577,44 +587,4 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
     data-codex-identity-file-picker
     @select="selectIdentityFile"
   />
-
-  <Dialog
-    :visible="Boolean(apiKeyDialogConnection)"
-    modal
-    :header="apiKeyDialogTitle"
-    class="w-[min(30rem,calc(100vw-2rem))]"
-    :draggable="false"
-    data-codex-remote-api-key-dialog
-    @update:visible="!$event && closeApiKeyDialog()"
-  >
-    <div class="grid gap-3">
-      <label class="grid gap-1 text-sm font-medium text-[color:var(--app-text)]">
-        API key
-        <InputText
-          v-model="apiKeyDraft"
-          type="password"
-          autocomplete="off"
-          data-codex-remote-api-key
-          @keydown.enter.prevent="loginRemoteApiKey"
-        />
-      </label>
-      <p
-        v-if="remoteError"
-        class="m-0 text-sm text-[color:var(--app-danger-text)]"
-        data-codex-remote-api-key-error
-      >
-        {{ remoteError }}
-      </p>
-      <footer class="mt-1 flex justify-end gap-2">
-        <Button label="Cancel" severity="secondary" outlined @click="closeApiKeyDialog" />
-        <Button
-          label="Sign in"
-          icon="pi pi-key"
-          data-codex-remote-api-key-submit
-          :loading="apiKeySaving"
-          @click="loginRemoteApiKey"
-        />
-      </footer>
-    </div>
-  </Dialog>
 </template>

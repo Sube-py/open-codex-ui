@@ -1,17 +1,19 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, ref } from 'vue'
 import PrimeVue from 'primevue/config'
 
-import { apiPost, apiPut } from '../../lib/api'
+import { apiGet, apiPost, apiPut } from '../../lib/api'
 import CodexSidebar from '../components/CodexSidebar.vue'
 import type { CodexNativeSessionSummary, CodexWorkspaceResponse } from '../types'
 
 vi.mock('../../lib/api', () => ({
+  apiGet: vi.fn(),
   apiPost: vi.fn(),
   apiPut: vi.fn(),
 }))
 
+const apiGetMock = vi.mocked(apiGet)
 const apiPostMock = vi.mocked(apiPost)
 const apiPutMock = vi.mocked(apiPut)
 
@@ -112,6 +114,13 @@ function mountSidebar(props: Partial<InstanceType<typeof CodexSidebar>['$props']
     },
     global: {
       plugins: [PrimeVue],
+      directives: {
+        tooltip: {
+          mounted(element: HTMLElement, binding: { value: string }) {
+            element.dataset.tooltip = binding.value
+          },
+        },
+      },
       stubs: {
         Dialog: {
           props: ['visible', 'header'],
@@ -133,6 +142,13 @@ function mountSidebar(props: Partial<InstanceType<typeof CodexSidebar>['$props']
           template:
             "<div data-codex-host-path-picker-stub :data-selected-path=\"selectedPath\" :data-host-id=\"hostId\"><button v-if=\"allowFiles\" data-codex-identity-picker-select @click=\"$emit('select', '/home/test/.ssh/id_ed25519')\">Select identity</button><button v-else data-codex-picker-select @click=\"$emit('select', hostId && hostId !== 'local' ? '/srv/selected' : '/tmp/selected')\">Select</button></div>",
         },
+        Select: {
+          inheritAttrs: false,
+          props: ['modelValue', 'options', 'optionLabel', 'optionValue'],
+          emits: ['update:modelValue'],
+          template:
+            '<select v-bind="$attrs" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option value=""></option><option v-for="option in options" :key="option[optionValue]" :value="option[optionValue]">{{ option[optionLabel] }}</option></select>',
+        },
         Menu: MenuStub,
       },
     },
@@ -144,6 +160,8 @@ describe('CodexSidebar', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     localStorage.clear()
+    apiGetMock.mockReset()
+    apiGetMock.mockResolvedValue({ hosts: [] })
     apiPostMock.mockReset()
     apiPutMock.mockReset()
     Object.defineProperty(navigator, 'clipboard', {
@@ -210,7 +228,7 @@ describe('CodexSidebar', () => {
       project_path: '/tmp/selected',
     })
     expect(wrapper.emitted('startThread')).toBeUndefined()
-    expect(wrapper.emitted('remoteConnectionChanged')).toHaveLength(1)
+    expect(wrapper.emitted('projectChanged')).toHaveLength(1)
   })
 
   it('starts new threads from project row actions', async () => {
@@ -292,14 +310,12 @@ describe('CodexSidebar', () => {
           ssh_port: 2222,
           ssh_alias: '',
           identity_file: '~/.ssh/build',
-          remote_path: '/srv/app',
           auto_connect: true,
         },
       })
       .mockResolvedValueOnce({ ok: true, detail: 'codex 1.2.3' })
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({ ok: true, detail: 'installed' })
-      .mockResolvedValueOnce({ ok: true, detail: 'Signed in with apiKey.' })
 
     const wrapper = mountSidebar({
       workspace: {
@@ -312,7 +328,6 @@ describe('CodexSidebar', () => {
             ssh_port: 2222,
             ssh_alias: '',
             identity_file: '~/.ssh/build',
-            remote_path: '/srv/app',
             auto_connect: true,
           },
         ],
@@ -324,6 +339,12 @@ describe('CodexSidebar', () => {
 
     await wrapper.get('[data-codex-open-settings]').trigger('click')
     await wrapper.get('[data-codex-add-remote]').trigger('click')
+    expect(wrapper.get('[data-codex-remote-host]').attributes('placeholder')).toBe(
+      'server.example.com',
+    )
+    expect(wrapper.get('[data-codex-remote-port]').classes()).toEqual(
+      expect.arrayContaining(['min-w-0', 'w-full']),
+    )
     await wrapper.get('[data-codex-remote-display-name]').setValue('Build host')
     await wrapper.get('[data-codex-remote-host]').setValue('host')
     await wrapper.get('[data-codex-remote-username]').setValue('user')
@@ -334,7 +355,6 @@ describe('CodexSidebar', () => {
       'value',
       '/home/test/.ssh/id_ed25519',
     )
-    await wrapper.get('[data-codex-remote-path]').setValue('/srv/app')
     await wrapper.get('[data-codex-save-remote]').trigger('click')
 
     expect(apiPostMock).toHaveBeenNthCalledWith(1, '/api/codex/remote-connections', {
@@ -344,7 +364,6 @@ describe('CodexSidebar', () => {
       ssh_port: 2222,
       ssh_alias: '',
       identity_file: '/home/test/.ssh/id_ed25519',
-      remote_path: '/srv/app',
       auto_connect: false,
     })
     expect(wrapper.emitted('remoteConnectionChanged')).toHaveLength(1)
@@ -357,6 +376,21 @@ describe('CodexSidebar', () => {
     )
 
     expect(wrapper.get('[data-codex-remote-runtime-status]').text()).toContain('Connected')
+    expect(wrapper.get('[data-codex-restart-remote]').attributes('data-tooltip')).toBe(
+      'Restart the remote Codex connection',
+    )
+    expect(wrapper.get('[data-codex-install-remote]').attributes('data-tooltip')).toBe(
+      'Install Codex on this server',
+    )
+    expect(wrapper.get('[data-codex-test-remote]').attributes('data-tooltip')).toBe(
+      'Test SSH and Codex availability',
+    )
+    expect(wrapper.get('[data-codex-edit-remote]').attributes('data-tooltip')).toBe(
+      'Edit this SSH connection',
+    )
+    expect(wrapper.get('[data-codex-delete-remote]').attributes('data-tooltip')).toBe(
+      'Delete this SSH connection',
+    )
 
     await wrapper.get('[data-codex-restart-remote]').trigger('click')
     expect(apiPostMock).toHaveBeenNthCalledWith(
@@ -372,17 +406,19 @@ describe('CodexSidebar', () => {
       {},
     )
 
-    await wrapper.get('[data-codex-login-api-key-remote]').trigger('click')
-    await wrapper.get('[data-codex-remote-api-key]').setValue('sk-test')
-    await wrapper.get('[data-codex-remote-api-key-submit]').trigger('click')
-    expect(apiPostMock).toHaveBeenNthCalledWith(
-      5,
-      '/api/codex/remote-connections/remote-1/login-api-key',
-      { apiKey: 'sk-test' },
-    )
+    const connectionToggle = wrapper.get('[data-codex-toggle-remote]')
+    expect(connectionToggle.attributes('data-tooltip')).toBe('Disconnect this SSH server')
+    await connectionToggle.get('input').setValue(false)
+    await flushPromises()
+    expect(apiPutMock).toHaveBeenCalledWith('/api/codex/remote-connections/remote-1/auto-connect', {
+      auto_connect: false,
+    })
+    expect(wrapper.get('[data-codex-restart-remote]').attributes('disabled')).toBeDefined()
+    expect(wrapper.emitted('remoteConnectionChanged')).toHaveLength(4)
 
+    expect(wrapper.find('[data-codex-login-api-key-remote]').exists()).toBe(false)
     expect(wrapper.find('[data-codex-start-remote-thread]').exists()).toBe(false)
-    expect(apiPostMock).toHaveBeenCalledTimes(5)
+    expect(apiPostMock).toHaveBeenCalledTimes(4)
   })
 
   it('updates SSH remote connections from the edit dialog', async () => {
@@ -394,7 +430,6 @@ describe('CodexSidebar', () => {
         ssh_port: null,
         ssh_alias: 'prod',
         identity_file: '',
-        remote_path: '~',
         auto_connect: false,
       },
     })
@@ -409,7 +444,6 @@ describe('CodexSidebar', () => {
             ssh_port: null,
             ssh_alias: 'prod',
             identity_file: '',
-            remote_path: '~',
             auto_connect: false,
           },
         ],
@@ -431,10 +465,44 @@ describe('CodexSidebar', () => {
       ssh_port: null,
       ssh_alias: 'prod',
       identity_file: '',
-      remote_path: '~',
       auto_connect: false,
     })
     expect(wrapper.emitted('remoteConnectionChanged')).toHaveLength(1)
+  })
+
+  it('selects SSH config aliases discovered from the user config', async () => {
+    apiGetMock.mockResolvedValueOnce({
+      hosts: [
+        {
+          alias: 'build-box',
+          hostname: 'build.example.com',
+          port: 2222,
+          identity_file: '~/.ssh/id_ed25519',
+        },
+      ],
+    })
+    apiPostMock.mockResolvedValueOnce({ connection: { id: 'build' } })
+    const wrapper = mountSidebar()
+
+    await wrapper.get('[data-codex-open-settings]').trigger('click')
+    await wrapper.get('[data-codex-add-remote]').trigger('click')
+    const modeButtons = wrapper.get('[data-codex-remote-connection-mode]').findAll('button')
+    await modeButtons[1]!.trigger('click')
+    await flushPromises()
+
+    expect(apiGetMock).toHaveBeenCalledWith('/api/codex/ssh-config-hosts')
+    await wrapper.get('[data-codex-remote-alias]').setValue('build-box')
+    await wrapper.get('[data-codex-save-remote]').trigger('click')
+
+    expect(apiPostMock).toHaveBeenCalledWith('/api/codex/remote-connections', {
+      display_name: '',
+      ssh_host: '',
+      ssh_username: '',
+      ssh_port: null,
+      ssh_alias: 'build-box',
+      identity_file: '',
+      auto_connect: false,
+    })
   })
 
   it('renders compact thread rows under project names', () => {
@@ -502,7 +570,6 @@ describe('CodexSidebar', () => {
             ssh_port: 22,
             ssh_alias: 'build-box',
             identity_file: '~/.ssh/id_ed25519',
-            remote_path: '/srv/app',
             auto_connect: false,
           },
         ],

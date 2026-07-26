@@ -22,7 +22,6 @@ const workspace: CodexWorkspaceResponse = {
       ssh_username: 'builder',
       ssh_alias: '',
       identity_file: '',
-      remote_path: '/srv/default',
       auto_connect: false,
     },
   ],
@@ -81,9 +80,7 @@ describe('CodexAddProjectDialog', () => {
     await wrapper.get('[data-codex-project-browse]').trigger('click')
 
     expect(wrapper.get('[data-remote-picker]').attributes('data-host-id')).toBe('ssh:build')
-    expect(wrapper.get('[data-remote-picker]').attributes('data-selected-path')).toBe(
-      '/srv/default',
-    )
+    expect(wrapper.get('[data-remote-picker]').attributes('data-selected-path')).toBe('')
 
     await wrapper.get('[data-select-remote-path]').trigger('click')
     await wrapper.get('[data-codex-project-save]').trigger('click')

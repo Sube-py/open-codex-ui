@@ -26,7 +26,11 @@ from yier_web.config import AppConfigService
 from yier_web.event_stream import EventStreamBroker
 from yier_web.frontend import FrontendService
 from yier_web.routes.codex import CodexController
-from yier_web.schemas import CodexProjectPayload, CodexRemoteConnectionPayload
+from yier_web.schemas import (
+    CodexProjectPayload,
+    CodexRemoteConnectionPayload,
+    CodexSshConfigHost,
+)
 
 
 def fake_thread(
@@ -1704,7 +1708,6 @@ def test_codex_remote_connection_configures_ssh_app_server(tmp_path: Path) -> No
             ssh_username="builder",
             ssh_port=2222,
             identity_file="~/.ssh/build",
-            remote_path="/srv/project",
             auto_connect=True,
         )
     )
@@ -1751,7 +1754,7 @@ def test_codex_remote_connection_configures_ssh_app_server(tmp_path: Path) -> No
     assert ssh_config.host == "builder@builder.example.com"
     assert ssh_config.port == 2222
     assert ssh_config.identity == "~/.ssh/build"
-    assert app_server_config.ssh_websocket.remote_cwd == "/srv/project"
+    assert app_server_config.ssh_websocket.remote_cwd == "~"
     assert session.config.model is None
     assert session.config.reasoning_effort is None
     assert "model" not in session.config.default_thread_params
@@ -1763,7 +1766,7 @@ def test_codex_remote_connection_configures_ssh_app_server(tmp_path: Path) -> No
     )
     assert create_response.status_code == 201
     created_session = factory.by_thread_id("thread-created")
-    assert created_session.start_new_thread_calls[0]["cwd"] == "/srv/project"
+    assert created_session.start_new_thread_calls[0]["cwd"] == "~"
 
 
 def test_codex_remote_connection_routes_persist_and_switch_hosts(
@@ -1785,7 +1788,6 @@ def test_codex_remote_connection_routes_persist_and_switch_hosts(
                 "ssh_host": "user@remote",
                 "ssh_port": 22,
                 "identity_file": "",
-                "remote_path": "~/repo",
                 "auto_connect": True,
             },
         )
@@ -1835,6 +1837,118 @@ def test_codex_remote_connection_routes_persist_and_switch_hosts(
         )
 
 
+def test_codex_remote_connection_toggle_controls_workspace_listing(
+    tmp_path: Path,
+) -> None:
+    factory = FakeSessionFactory()
+    _, client = build_app(tmp_path, factory)
+
+    with client:
+        create_response = client.post(
+            "/api/codex/remote-connections",
+            json={
+                "display_name": "Build host",
+                "ssh_host": "builder.example.com",
+                "auto_connect": False,
+            },
+        )
+        assert create_response.status_code == 201
+        connection_id = create_response.json()["connection"]["id"]
+
+        disabled_workspace = client.get("/api/codex/workspace")
+        assert disabled_workspace.status_code == 200
+        with pytest.raises(KeyError, match=f"workspace:ssh:{connection_id}"):
+            factory.workspace_session(f"ssh:{connection_id}")
+        assert (
+            disabled_workspace.json()["remote_connection_statuses"][connection_id][
+                "status"
+            ]
+            == "disconnected"
+        )
+
+        enable_response = client.put(
+            f"/api/codex/remote-connections/{connection_id}/auto-connect",
+            json={"auto_connect": True},
+        )
+        assert enable_response.status_code == 200
+        assert enable_response.json()["connection"]["auto_connect"] is True
+
+        enabled_workspace = client.get("/api/codex/workspace")
+        assert enabled_workspace.status_code == 200
+        remote_session = factory.workspace_session(f"ssh:{connection_id}")
+        assert remote_session.stopped is False
+        assert (
+            enabled_workspace.json()["remote_connection_statuses"][connection_id][
+                "status"
+            ]
+            == "connected"
+        )
+
+        disable_response = client.put(
+            f"/api/codex/remote-connections/{connection_id}/auto-connect",
+            json={"auto_connect": False},
+        )
+        assert disable_response.status_code == 200
+        assert disable_response.json()["connection"]["auto_connect"] is False
+        assert remote_session.stopped is True
+
+        connection_response = client.get("/api/codex/remote-connections")
+        assert (
+            connection_response.json()["statuses"][connection_id]["status"]
+            == "disconnected"
+        )
+        assert (
+            connection_response.json()["statuses"][connection_id]["detail"]
+            == "Automatic connection is off"
+        )
+
+
+def test_codex_controller_discovers_user_ssh_config_hosts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    factory = FakeSessionFactory()
+    config_service, client = build_app(tmp_path, factory)
+    calls: list[tuple[Path, Path]] = []
+
+    def fake_discover(config_path: Path, *, home_dir: Path) -> list[CodexSshConfigHost]:
+        calls.append((config_path, home_dir))
+        return [
+            CodexSshConfigHost(
+                alias="build-box",
+                hostname="build.example.com",
+                port=2222,
+                identity_file="~/.ssh/id_ed25519",
+            )
+        ]
+
+    monkeypatch.setattr(
+        "yier_web.routes.codex.discover_ssh_config_hosts",
+        fake_discover,
+    )
+
+    with client:
+        response = client.get("/api/codex/ssh-config-hosts")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "hosts": [
+            {
+                "alias": "build-box",
+                "hostname": "build.example.com",
+                "port": 2222,
+                "identity_file": "~/.ssh/id_ed25519",
+            }
+        ]
+    }
+    assert calls == [
+        (
+            config_service.home_dir / ".ssh" / "config",
+            config_service.home_dir,
+        )
+    ]
+
+
 def test_codex_remote_connection_save_does_not_switch_active_host(
     tmp_path: Path,
 ) -> None:
@@ -1880,7 +1994,7 @@ def test_codex_remote_connection_alias_discards_direct_ssh_fields(
     connection = config_service.save_codex_remote_connection(
         CodexRemoteConnectionPayload(
             display_name="Workstation",
-            ssh_host="100.64.0.93",
+            ssh_host="server.example.com",
             ssh_username="valve",
             ssh_port=22222,
             ssh_alias="valve",
@@ -2004,70 +2118,6 @@ def test_codex_remote_connection_install_uses_official_installer(
         statuses = manager.remote_connections().statuses
         assert statuses[connection.id].status == "connecting"
         assert statuses[connection.id].detail == "Restarting connection"
-
-    asyncio.run(scenario())
-
-
-def test_codex_remote_connection_api_key_login_uses_remote_app_server(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def scenario() -> None:
-        factory = FakeSessionFactory()
-        config_service = AppConfigService(
-            project_root=tmp_path / "project",
-            home_dir=tmp_path / "home",
-        )
-        connection = config_service.save_codex_remote_connection(
-            CodexRemoteConnectionPayload(
-                display_name="Build host",
-                ssh_host="builder.example.com",
-                auto_connect=False,
-            )
-        )
-        manager = CodexIpcManager(
-            config_service=config_service,
-            event_broker=EventStreamBroker(),
-            session_factory=factory,
-        )
-        calls: list[tuple[str, Any]] = []
-
-        class FakeAsyncCodexClient:
-            def __init__(self, *, config: Any) -> None:
-                calls.append(("config", config))
-
-            async def __aenter__(self) -> "FakeAsyncCodexClient":
-                calls.append(("enter", None))
-                return self
-
-            async def __aexit__(self, _exc_type: Any, _exc: Any, _tb: Any) -> None:
-                calls.append(("exit", None))
-
-            async def initialize(self) -> None:
-                calls.append(("initialize", None))
-
-            async def account_login_start(self, params: dict[str, Any]) -> None:
-                calls.append(("login", params))
-
-            async def account_read(self, params: dict[str, Any]) -> SimpleNamespace:
-                calls.append(("read", params))
-                return SimpleNamespace(
-                    account=SimpleNamespace(root=SimpleNamespace(type="apiKey"))
-                )
-
-        monkeypatch.setattr(
-            "yier_web.codex.ipc_manager.AsyncCodexClient",
-            FakeAsyncCodexClient,
-        )
-
-        result = await manager.login_remote_api_key(connection.id, "sk-test")
-
-        assert result.ok is True
-        assert result.detail == "Signed in with apiKey."
-        assert ("login", {"type": "apiKey", "apiKey": "sk-test"}) in calls
-        assert ("read", {"refreshToken": False}) in calls
-        statuses = manager.remote_connections().statuses
-        assert statuses[connection.id].status == "connected"
 
     asyncio.run(scenario())
 

@@ -1,4 +1,4 @@
-import { shallowMount } from '@vue/test-utils'
+import { flushPromises, shallowMount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
@@ -31,8 +31,9 @@ const workspaceMock: {
   openingThreadId: '',
   projectPathDraft: '',
   queuedFollowups: [],
+  refreshRemoteConnections: vi.fn().mockResolvedValue(undefined),
   refreshWorkspace: vi.fn(),
-  refreshWorkspaceAndSelect: vi.fn(),
+  refreshWorkspaceAndSelect: vi.fn().mockResolvedValue(undefined),
   removeFollowup: vi.fn(),
   renameThread: vi.fn(),
   resumeEmbedThread: vi.fn(),
@@ -105,9 +106,27 @@ describe('Codex route separation', () => {
 
     const wrapper = mountCodexView(router)
 
-    expect(wrapper.findAll('a').map((link) => link.attributes('href'))).not.toContain(
-      '/chat',
-    )
+    expect(wrapper.findAll('a').map((link) => link.attributes('href'))).not.toContain('/chat')
+  })
+
+  it('refreshes SSH metadata before updating remote thread history', async () => {
+    const router = createTestRouter()
+    await router.push('/codex')
+    await router.isReady()
+    const wrapper = mountCodexView(router)
+    const sidebar = wrapper.getComponent({ name: 'CodexSidebar' })
+
+    sidebar.vm.$emit('remoteConnectionChanged')
+    await flushPromises()
+
+    expect(workspaceMock.refreshRemoteConnections).toHaveBeenCalledTimes(1)
+    expect(workspaceMock.refreshWorkspaceAndSelect).toHaveBeenCalledTimes(1)
+
+    sidebar.vm.$emit('projectChanged')
+    await flushPromises()
+
+    expect(workspaceMock.refreshRemoteConnections).toHaveBeenCalledTimes(1)
+    expect(workspaceMock.refreshWorkspaceAndSelect).toHaveBeenCalledTimes(2)
   })
 
   it('centers the active thread title in the page header without hover styling', async () => {
@@ -126,9 +145,7 @@ describe('Codex route separation', () => {
     expect(title.text()).toBe(
       'A very long Codex thread title that should truncate in the page header',
     )
-    expect(title.classes()).toEqual(
-      expect.arrayContaining(['truncate', 'text-center', 'min-w-0']),
-    )
+    expect(title.classes()).toEqual(expect.arrayContaining(['truncate', 'text-center', 'min-w-0']))
 
     const linksAndButtons = [
       ...wrapper.findAll('a').map((item) => item.classes()),

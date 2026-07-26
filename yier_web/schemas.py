@@ -103,7 +103,6 @@ class CodexRemoteConnection(BaseModel):
     ssh_port: int | None = None
     ssh_alias: str = ""
     identity_file: str = ""
-    remote_path: str = "~"
     auto_connect: bool = False
 
     @field_validator(
@@ -113,7 +112,6 @@ class CodexRemoteConnection(BaseModel):
         "ssh_username",
         "ssh_alias",
         "identity_file",
-        "remote_path",
     )
     @classmethod
     def strip_remote_connection_strings(cls, value: str) -> str:
@@ -138,7 +136,6 @@ class CodexRemoteConnection(BaseModel):
                     "ssh_username": "",
                     "ssh_port": None,
                     "identity_file": "",
-                    "remote_path": self.remote_path or "~",
                 }
             )
 
@@ -151,7 +148,6 @@ class CodexRemoteConnection(BaseModel):
                 "display_name": display_name,
                 "ssh_host": ssh_host,
                 "ssh_username": ssh_username,
-                "remote_path": self.remote_path or "~",
             }
         )
 
@@ -213,7 +209,6 @@ class CodexRemoteConnectionPayload(BaseModel):
     ssh_port: int | None = None
     ssh_alias: str = ""
     identity_file: str = ""
-    remote_path: str = "~"
     auto_connect: bool = False
 
     @field_validator(
@@ -222,27 +217,29 @@ class CodexRemoteConnectionPayload(BaseModel):
         "ssh_username",
         "ssh_alias",
         "identity_file",
-        "remote_path",
     )
     @classmethod
     def strip_payload_strings(cls, value: str) -> str:
         return value.strip()
 
 
-class CodexRemoteConnectionApiKeyLoginPayload(BaseModel):
-    api_key: str = Field(alias="apiKey")
-
-    @field_validator("api_key")
-    @classmethod
-    def strip_api_key(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("apiKey is required.")
-        return stripped
+class CodexRemoteConnectionAutoConnectPayload(BaseModel):
+    auto_connect: bool
 
 
 class CodexRemoteConnectionResponse(BaseModel):
     connection: CodexRemoteConnection
+
+
+class CodexSshConfigHost(BaseModel):
+    alias: str
+    hostname: str
+    port: int | None = None
+    identity_file: str = ""
+
+
+class CodexSshConfigHostsResponse(BaseModel):
+    hosts: list[CodexSshConfigHost] = Field(default_factory=list)
 
 
 CodexRemoteConnectionRuntimeStatus = Literal[

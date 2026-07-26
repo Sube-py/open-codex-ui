@@ -20,6 +20,18 @@ function showCodexError(message: string) {
   codex.successMessage = ''
 }
 
+async function handleRemoteConnectionChanged() {
+  try {
+    await codex.refreshRemoteConnections()
+  } catch (error) {
+    showCodexError(error instanceof Error ? error.message : String(error))
+    return
+  }
+  void codex.refreshWorkspaceAndSelect().catch((error) => {
+    showCodexError(error instanceof Error ? error.message : String(error))
+  })
+}
+
 function openMobileThreadDrawer() {
   isMobileThreadDrawerOpen.value = true
 }
@@ -62,7 +74,8 @@ function startMobileThread(projectPath: string, hostId?: string) {
       @fork-thread="codex.forkThread"
       @rename-thread="codex.renameThread"
       @copy-error="showCodexError"
-      @remote-connection-changed="codex.refreshWorkspaceAndSelect"
+      @project-changed="codex.refreshWorkspaceAndSelect"
+      @remote-connection-changed="handleRemoteConnectionChanged"
     />
 
     <main class="flex min-h-0 flex-col overflow-hidden">
@@ -182,7 +195,8 @@ function startMobileThread(projectPath: string, hostId?: string) {
             @fork-thread="codex.forkThread"
             @rename-thread="codex.renameThread"
             @copy-error="showCodexError"
-            @remote-connection-changed="codex.refreshWorkspaceAndSelect"
+            @project-changed="codex.refreshWorkspaceAndSelect"
+            @remote-connection-changed="handleRemoteConnectionChanged"
           />
         </div>
       </Transition>

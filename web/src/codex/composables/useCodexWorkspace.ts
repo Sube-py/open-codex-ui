@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
+import { apiGet } from '../../lib/api'
 import { CodexSocket } from '../lib/codexSocket'
 import { isRecord, isWorkingStatus } from '../lib/format'
 import type {
@@ -9,6 +10,7 @@ import type {
   CodexPendingRequest,
   CodexPromptSubmission,
   CodexQueuedFollowup,
+  CodexRemoteConnectionsResponse,
   CodexSkillSummary,
   CodexSocketStatus,
   CodexThreadGoal,
@@ -561,6 +563,17 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     const payload = await socket.sendCommand<CodexWorkspaceResponse>('list_threads')
     workspace.value = normalizeWorkspace(payload)
     return workspace.value
+  }
+
+  async function refreshRemoteConnections() {
+    const payload = await apiGet<CodexRemoteConnectionsResponse>('/api/codex/remote-connections')
+    workspace.value = {
+      ...workspace.value,
+      remote_connections: payload.connections,
+      active_remote_connection_id: payload.active_connection_id,
+      remote_connection_statuses: payload.statuses ?? {},
+    }
+    return payload
   }
 
   async function refreshWorkspaceAndSelect() {
@@ -1162,6 +1175,7 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     pendingUserInputRequests,
     projectPathDraft,
     queuedFollowups,
+    refreshRemoteConnections,
     refreshWorkspace,
     refreshWorkspaceAndSelect,
     removeFollowup,

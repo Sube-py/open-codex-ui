@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import PrimeVue from 'primevue/config'
+import Tooltip from 'primevue/tooltip'
 import { definePreset } from '@primeuix/themes'
 import Aura from '@primeuix/themes/aura'
 
@@ -75,6 +76,7 @@ app.use(PrimeVue, {
     },
   },
 })
+app.directive('tooltip', Tooltip)
 app.use(router)
 
 app.mount('#app')

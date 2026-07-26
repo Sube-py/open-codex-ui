@@ -158,6 +158,21 @@ class AppConfigService:
         self._write_json(self.settings_path, settings.model_dump())
         return connection
 
+    def set_codex_remote_connection_auto_connect(
+        self,
+        connection_id: str,
+        auto_connect: bool,
+    ) -> CodexRemoteConnection:
+        settings = self.load_web_settings()
+        for index, connection in enumerate(settings.codex.remote_connections):
+            if connection.id != connection_id:
+                continue
+            updated = connection.model_copy(update={"auto_connect": auto_connect})
+            settings.codex.remote_connections[index] = updated
+            self._write_json(self.settings_path, settings.model_dump())
+            return updated
+        raise ValueError("Remote connection not found.")
+
     def save_codex_project(
         self, payload: CodexProjectPayload
     ) -> CodexProjectDefinition:
@@ -390,7 +405,6 @@ class AppConfigService:
                 id=connection_id or "",
                 display_name=payload.display_name,
                 ssh_alias=payload.ssh_alias,
-                remote_path=payload.remote_path,
                 auto_connect=payload.auto_connect,
             ).normalized()
         if not payload.ssh_host:
@@ -402,7 +416,6 @@ class AppConfigService:
             ssh_username=payload.ssh_username,
             ssh_port=payload.ssh_port,
             identity_file=payload.identity_file,
-            remote_path=payload.remote_path,
             auto_connect=payload.auto_connect,
         ).normalized()
 

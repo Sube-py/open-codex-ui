@@ -67,9 +67,9 @@ watch(kind, () => {
   errorMessage.value = ''
 })
 
-watch(selectedConnection, (connection) => {
+watch(selectedConnection, () => {
   if (kind.value === 'remote') {
-    projectPath.value = connection?.remote_path || ''
+    projectPath.value = ''
   }
 })
 
@@ -200,7 +200,7 @@ async function saveProject() {
   <CodexHostPathPicker
     v-model:visible="pathPickerVisible"
     :host-id="selectedHostId"
-    :selected-path="projectPath || selectedConnection?.remote_path"
+    :selected-path="projectPath"
     :title="kind === 'remote' ? 'Choose remote project folder' : 'Choose project folder'"
     :disabled="disabled || saving"
     @select="selectProjectPath"

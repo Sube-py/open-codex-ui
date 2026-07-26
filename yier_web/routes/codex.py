@@ -32,17 +32,19 @@ from yier_web.schemas import (
     CodexFilesystemResponse,
     CodexProjectDefinition,
     CodexProjectPayload,
+    CodexRemoteConnectionAutoConnectPayload,
     CodexRemoteConnectionPayload,
-    CodexRemoteConnectionApiKeyLoginPayload,
     CodexRemoteConnectionResponse,
     CodexRemoteConnectionTestResponse,
     CodexRemoteConnectionsResponse,
+    CodexSshConfigHostsResponse,
     CodexThreadCreateRequest,
     CodexThreadCreateResponse,
     CodexThreadNameRequest,
     CodexThreadStateResponse,
     CodexWorkspaceResponse,
 )
+from yier_web.ssh_config import discover_ssh_config_hosts
 
 
 def _codex_manager(state: State) -> CodexIpcManager:
@@ -245,6 +247,16 @@ class CodexController(Controller):
     ) -> CodexRemoteConnectionsResponse:
         return _codex_manager(state).remote_connections()
 
+    @get("/ssh-config-hosts")
+    async def get_ssh_config_hosts(self, state: State) -> CodexSshConfigHostsResponse:
+        home_dir = _codex_manager(state).config_service.home_dir
+        hosts = await asyncio.to_thread(
+            discover_ssh_config_hosts,
+            home_dir / ".ssh" / "config",
+            home_dir=home_dir,
+        )
+        return CodexSshConfigHostsResponse(hosts=hosts)
+
     @post("/remote-connections")
     async def create_remote_connection(
         self,
@@ -303,6 +315,25 @@ class CodexController(Controller):
             await manager.activate_remote_connection("")
         return {"ok": True}
 
+    @put("/remote-connections/{connection_id:str}/auto-connect")
+    async def update_remote_connection_auto_connect(
+        self,
+        connection_id: str,
+        data: CodexRemoteConnectionAutoConnectPayload,
+        state: State,
+    ) -> CodexRemoteConnectionResponse:
+        try:
+            connection = await _codex_manager(state).set_remote_connection_auto_connect(
+                connection_id,
+                auto_connect=data.auto_connect,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail=str(exc),
+            ) from exc
+        return CodexRemoteConnectionResponse(connection=connection)
+
     @post("/remote-connections/{connection_id:str}/activate")
     async def activate_remote_connection(
         self,
@@ -333,18 +364,6 @@ class CodexController(Controller):
         state: State,
     ) -> CodexRemoteConnectionTestResponse:
         return await _codex_manager(state).install_remote_codex(connection_id)
-
-    @post("/remote-connections/{connection_id:str}/login-api-key")
-    async def login_remote_api_key(
-        self,
-        connection_id: str,
-        data: CodexRemoteConnectionApiKeyLoginPayload,
-        state: State,
-    ) -> CodexRemoteConnectionTestResponse:
-        return await _codex_manager(state).login_remote_api_key(
-            connection_id,
-            data.api_key,
-        )
 
     @post("/remote-connections/{connection_id:str}/test")
     async def test_remote_connection(

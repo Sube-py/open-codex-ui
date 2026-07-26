@@ -64,7 +64,6 @@ export interface CodexRemoteConnection {
   ssh_port?: number | null
   ssh_alias: string
   identity_file: string
-  remote_path: string
   auto_connect: boolean
 }
 
@@ -86,8 +85,22 @@ export interface CodexRemoteConnectionPayload {
   ssh_port?: number | null
   ssh_alias: string
   identity_file: string
-  remote_path: string
   auto_connect: boolean
+}
+
+export interface CodexRemoteConnectionAutoConnectPayload {
+  auto_connect: boolean
+}
+
+export interface CodexSshConfigHost {
+  alias: string
+  hostname: string
+  port?: number | null
+  identity_file: string
+}
+
+export interface CodexSshConfigHostsResponse {
+  hosts: CodexSshConfigHost[]
 }
 
 export interface CodexRemoteConnectionsResponse {

@@ -1,13 +1,20 @@
 import { defineComponent, h, nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { apiGet } from '../../lib/api'
 import {
   useCodexWorkspace,
   type CodexRealtimeClient,
   type UseCodexWorkspaceOptions,
 } from '../composables/useCodexWorkspace'
 import type { CodexClientCommand, CodexServerEvent, CodexSocketStatus, JsonRecord } from '../types'
+
+vi.mock('../../lib/api', () => ({
+  apiGet: vi.fn(),
+}))
+
+const apiGetMock = vi.mocked(apiGet)
 
 type CommandCall = {
   type: CodexClientCommand
@@ -143,8 +150,7 @@ class FakeCodexSocket implements CodexRealtimeClient {
         threadId: String(payload.thread_id),
         objective: this.goalObjective,
         status: typeof payload.status === 'string' ? payload.status : 'active',
-        tokenBudget:
-          typeof payload.token_budget === 'number' ? payload.token_budget : null,
+        tokenBudget: typeof payload.token_budget === 'number' ? payload.token_budget : null,
         tokensUsed: 0,
         timeUsedSeconds: 0,
         createdAt: 1,
@@ -228,6 +234,39 @@ function mountHarness(
 describe('useCodexWorkspace', () => {
   beforeEach(() => {
     localStorage.clear()
+    apiGetMock.mockReset()
+  })
+
+  it('refreshes SSH connection metadata without listing remote threads', async () => {
+    const socket = new FakeCodexSocket()
+    const { workspace } = mountHarness(socket)
+    await flushPromises()
+    apiGetMock.mockResolvedValueOnce({
+      connections: [
+        {
+          id: 'remote-1',
+          display_name: 'Build host',
+          ssh_host: 'build.example.com',
+          ssh_alias: '',
+          identity_file: '',
+          auto_connect: false,
+        },
+      ],
+      active_connection_id: '',
+      statuses: {
+        'remote-1': { status: 'disconnected', detail: 'Not connected yet' },
+      },
+    })
+    const commandCount = socket.commands.length
+
+    await workspace.refreshRemoteConnections()
+
+    expect(apiGetMock).toHaveBeenCalledWith('/api/codex/remote-connections')
+    expect(socket.commands).toHaveLength(commandCount)
+    expect(workspace.workspace.value.remote_connections?.[0]?.id).toBe('remote-1')
+    expect(workspace.workspace.value.remote_connection_statuses?.['remote-1']?.status).toBe(
+      'disconnected',
+    )
   })
 
   it('subscribes to one visible thread while leaving server sessions alive', async () => {
@@ -461,9 +500,7 @@ describe('useCodexWorkspace', () => {
         token_budget: 20000,
       },
     })
-    expect(workspace.activeThreadState.value?.threadGoal?.objective).toBe(
-      'Ship the web goal mode',
-    )
+    expect(workspace.activeThreadState.value?.threadGoal?.objective).toBe('Ship the web goal mode')
     expect(workspace.activeThreadState.value?.turns).toEqual([])
 
     await workspace.updateThreadGoalStatus('complete')
@@ -504,9 +541,7 @@ describe('useCodexWorkspace', () => {
     const { workspace } = mountHarness(socket)
     await flushPromises()
 
-    expect(workspace.activeThreadState.value?.threadGoal?.objective).toBe(
-      'Keep going until green',
-    )
+    expect(workspace.activeThreadState.value?.threadGoal?.objective).toBe('Keep going until green')
     expect(workspace.activeThreadState.value?.threadGoal?.tokenBudget).toBe(9000)
     expect(workspace.activeThreadState.value?.turns).toEqual([])
   })
@@ -520,9 +555,7 @@ describe('useCodexWorkspace', () => {
     await workspace.setThreadGoal('Direct response goal')
     await flushPromises()
 
-    expect(workspace.activeThreadState.value?.threadGoal?.objective).toBe(
-      'Direct response goal',
-    )
+    expect(workspace.activeThreadState.value?.threadGoal?.objective).toBe('Direct response goal')
     expect(workspace.activeThreadState.value?.turns).toEqual([])
   })
 

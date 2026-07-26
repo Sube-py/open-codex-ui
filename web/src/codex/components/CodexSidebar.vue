@@ -35,6 +35,7 @@ const emit = defineEmits<{
   forkThread: [threadId: string]
   renameThread: [threadId: string, name: string]
   copyError: [message: string]
+  projectChanged: []
   remoteConnectionChanged: []
 }>()
 
@@ -361,7 +362,9 @@ async function copyThreadId(threadId: string) {
       <div class="flex min-w-0 items-center gap-3">
         <img :src="appIconUrl" alt="" class="h-9 w-9 shrink-0 rounded-xl" />
         <div class="min-w-0">
-          <h1 class="m-0 truncate text-base font-semibold text-[color:var(--app-text)]">Open Codex UI</h1>
+          <h1 class="m-0 truncate text-base font-semibold text-[color:var(--app-text)]">
+            Open Codex UI
+          </h1>
           <p class="m-0 mt-0.5 truncate text-[0.72rem] text-[color:var(--app-text-soft)]">
             Codex anywhere
           </p>
@@ -572,7 +575,7 @@ async function copyThreadId(threadId: string) {
       v-model:visible="addProjectVisible"
       :workspace="workspace"
       :disabled="busy"
-      @project-changed="emit('remoteConnectionChanged')"
+      @project-changed="emit('projectChanged')"
     />
     <CodexSettingsDialog
       v-model:visible="settingsVisible"
