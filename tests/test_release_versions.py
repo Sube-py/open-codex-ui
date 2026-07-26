@@ -19,3 +19,13 @@ def test_python_and_npm_launcher_versions_match() -> None:
     )
 
     assert npm_package["version"] == pyproject["project"]["version"]
+
+
+def test_python_distribution_only_installs_public_command() -> None:
+    pyproject = tomllib.loads(
+        (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert pyproject["project"]["scripts"] == {
+        "open-codex-ui": "yier_web.cli:main"
+    }

@@ -172,18 +172,23 @@ Source development requires Python 3.12+, Node.js 20+, `uv`, and `pnpm`:
 ```bash
 uv sync
 pnpm --dir web install
-uv run dev
 ```
 
-The application remains at `http://127.0.0.1:13140`; in development mode the
-backend proxies frontend traffic to the Vite server on port `5173`.
+Start the frontend and backend in separate terminals:
+
+```bash
+pnpm --dir web dev
+uv run python main.py --debug --reload --host 127.0.0.1 --port 13140
+```
+
+The application remains at `http://127.0.0.1:13140`; the backend proxies
+frontend traffic to the Vite server on port `5173`.
 
 | Command                                | Purpose                                                     |
 | -------------------------------------- | ----------------------------------------------------------- |
-| `uv run dev`                           | Start frontend and backend with reload                      |
-| `uv run dev-web`                       | Start Vite only                                             |
-| `uv run dev-backend`                   | Start the backend only                                      |
-| `uv run publish`                       | Type-check and build frontend assets into `yier_web/static` |
+| `pnpm --dir web dev`                   | Start Vite                                                  |
+| `uv run python main.py --debug --reload` | Start the development backend                             |
+| `pnpm --dir web build`                 | Type-check and build frontend assets into `yier_web/static` |
 | `uv run open-codex-ui`                 | Run the source checkout in production mode                  |
 | `uv run pytest`                        | Run backend tests                                           |
 | `uv run python -m compileall yier_web` | Check Python compilation                                    |
@@ -193,7 +198,7 @@ backend proxies frontend traffic to the Vite server on port `5173`.
 To test the production build from source:
 
 ```bash
-uv run publish
+pnpm --dir web build
 uv run open-codex-ui
 ```
 
