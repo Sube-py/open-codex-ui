@@ -1570,12 +1570,15 @@ def test_codex_controller_http_and_websocket_contract(tmp_path: Path) -> None:
 def test_codex_projects_only_keep_explicit_projectless_threads_in_chats(
     tmp_path: Path,
 ) -> None:
+    project_a = str((tmp_path / "project-a").resolve())
+    project_b = str((tmp_path / "project-b").resolve())
+    empty_project = str((tmp_path / "empty").resolve())
     factory = FakeSessionFactory()
     config_service, client = build_app(tmp_path, factory)
     config_service.assign_codex_thread_project(
         "thread-b",
         host_id="local",
-        cwd="/tmp/project-b",
+        cwd=project_b,
     )
 
     with client:
@@ -1585,6 +1588,12 @@ def test_codex_projects_only_keep_explicit_projectless_threads_in_chats(
         assert [thread["thread_id"] for thread in initial.json()["recent_threads"]] == [
             "thread-b"
         ]
+        factory.workspace_session().list_threads_response = ThreadListResponse(
+            data=[
+                fake_thread("thread-a", project_a, name="Alpha", preview="one"),
+                fake_thread("thread-b", project_b, name="Beta", preview="two"),
+            ]
+        )
 
         created = client.post(
             "/api/codex/projects",
@@ -1592,7 +1601,7 @@ def test_codex_projects_only_keep_explicit_projectless_threads_in_chats(
                 "name": "Alpha",
                 "kind": "local",
                 "host_id": "local",
-                "project_path": "/tmp/project-a",
+                "project_path": project_a,
             },
         )
         assert created.status_code == 201
@@ -1604,7 +1613,7 @@ def test_codex_projects_only_keep_explicit_projectless_threads_in_chats(
                 "name": "Empty",
                 "kind": "local",
                 "host_id": "local",
-                "project_path": "/tmp/empty",
+                "project_path": empty_project,
             },
         )
         assert empty.status_code == 201
@@ -1627,7 +1636,7 @@ def test_codex_projects_only_keep_explicit_projectless_threads_in_chats(
                 "name": "Duplicate",
                 "kind": "local",
                 "host_id": "local",
-                "project_path": "/tmp/project-a",
+                "project_path": project_a,
             },
         )
         assert duplicate.status_code == 400
