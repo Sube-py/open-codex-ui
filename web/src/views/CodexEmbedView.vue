@@ -359,7 +359,7 @@ onBeforeUnmount(() => {
 <template>
   <main class="flex h-dvh min-h-0 flex-col overflow-hidden bg-[color:var(--app-bg)]">
     <div
-      class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)] items-center gap-3 border-b border-[color:var(--app-border)] bg-[rgba(255,253,247,0.94)] px-4 py-2 pt-[calc(0.5rem+env(safe-area-inset-top))] max-sm:px-3"
+      class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)] items-center gap-3 border-b border-[color:var(--app-border)] bg-[color:var(--app-panel-strong)] px-4 py-2 pt-[calc(0.5rem+env(safe-area-inset-top))] max-sm:px-3"
     >
       <div class="flex min-w-0 items-center gap-2 justify-self-start">
         <span

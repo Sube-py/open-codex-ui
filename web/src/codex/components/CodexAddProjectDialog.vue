@@ -161,7 +161,7 @@ async function saveProject() {
         <span>Project folder</span>
         <button
           type="button"
-          class="grid min-h-11 min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_1rem] items-center gap-2 rounded-md border border-[color:var(--app-border)] bg-white px-3 text-left transition hover:border-[color:var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-55"
+          class="grid min-h-11 min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_1rem] items-center gap-2 rounded-md border border-[color:var(--app-border)] bg-[color:var(--app-surface-raised)] px-3 text-left transition hover:border-[color:var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-55"
           :disabled="disabled || !canBrowse"
           data-codex-project-browse
           @click="openPathPicker"

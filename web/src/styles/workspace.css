@@ -1,18 +1,18 @@
 @layer components {
   .sheet-overlay {
-    @apply fixed inset-0 z-40 bg-[rgba(24,48,54,0.34)] backdrop-blur-[2px];
+    @apply fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px];
   }
 
   .sheet-panel {
-    @apply fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88vh] w-full max-w-4xl flex-col overflow-y-auto rounded-t-[1.75rem] border border-b-0 border-[color:var(--app-border)] bg-[rgba(255,252,245,0.98)] px-4 pb-5 pt-3 shadow-[0_-24px_60px_rgba(31,54,58,0.18)] backdrop-blur-[18px];
+    @apply fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88vh] w-full max-w-4xl flex-col overflow-y-auto rounded-t-[1.75rem] border border-b-0 border-[color:var(--app-border)] bg-[color:var(--app-panel-strong)] px-4 pb-5 pt-3 shadow-[0_-24px_60px_var(--app-shadow-color)] backdrop-blur-[18px];
   }
 
   .drawer-panel {
-    @apply fixed inset-y-0 left-0 z-50 flex h-full w-[min(24rem,92vw)] flex-col border-r border-[color:var(--app-border)] bg-[rgba(255,252,245,0.98)] shadow-[24px_0_60px_rgba(31,54,58,0.18)] backdrop-blur-[18px];
+    @apply fixed inset-y-0 left-0 z-50 flex h-full w-[min(24rem,92vw)] flex-col border-r border-[color:var(--app-border)] bg-[color:var(--app-panel-strong)] shadow-[24px_0_60px_var(--app-shadow-color)] backdrop-blur-[18px];
   }
 
   .sheet-handle {
-    @apply mx-auto h-1.5 w-14 rounded-full bg-[rgba(24,48,54,0.14)];
+    @apply mx-auto h-1.5 w-14 rounded-full bg-[color:var(--app-border-strong)];
   }
 
   @media (max-width: 1023px) {

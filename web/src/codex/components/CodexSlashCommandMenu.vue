@@ -109,7 +109,7 @@ function ensureSelectedVisible() {
 <template>
   <div
     v-if="open"
-    class="fixed z-[120] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-[color:var(--app-border)] bg-white shadow-xl"
+    class="fixed z-[120] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-surface-raised)] shadow-xl"
     :style="anchorStyle"
     role="listbox"
     aria-label="Slash commands"
@@ -146,13 +146,15 @@ function ensureSelectedVisible() {
           class="grid w-full grid-cols-[1rem_minmax(0,1fr)] items-start gap-2 rounded-lg px-2 py-1.5 text-left"
           :class="
             row.index === selectedIndex
-              ? 'bg-[rgba(21,94,99,0.10)] text-[color:var(--app-text)]'
-              : 'text-[color:var(--app-text)] hover:bg-[rgba(21,94,99,0.06)]'
+              ? 'bg-[color:var(--app-selected)] text-[color:var(--app-text)]'
+              : 'text-[color:var(--app-text)] hover:bg-[color:var(--app-hover)]'
           "
           role="option"
           :aria-selected="row.index === selectedIndex"
           :data-codex-slash-option="row.command.id"
-          :data-codex-slash-skill="row.command.action.type === 'skill' ? row.command.action.skill.name : undefined"
+          :data-codex-slash-skill="
+            row.command.action.type === 'skill' ? row.command.action.skill.name : undefined
+          "
           :data-codex-slash-selected="row.index === selectedIndex ? '' : undefined"
           :title="row.command.description"
           @mouseenter="emit('hover', row.index)"

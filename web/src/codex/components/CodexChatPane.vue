@@ -65,13 +65,13 @@ function submitUserInputResponse(requestId: string, response: JsonRecord) {
 
 const gitInfo = computed(() => {
   const value = props.activeThreadState?.gitInfo
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : null
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : null
 })
 const gitBranch = computed(() => stringValue(gitInfo.value?.branch))
 const gitSha = computed(() => stringValue(gitInfo.value?.sha))
-const gitOriginUrl = computed(() => stringValue(gitInfo.value?.originUrl ?? gitInfo.value?.origin_url))
+const gitOriginUrl = computed(() =>
+  stringValue(gitInfo.value?.originUrl ?? gitInfo.value?.origin_url),
+)
 const gitShortSha = computed(() => (gitSha.value ? gitSha.value.slice(0, 7) : ''))
 
 function stringValue(value: unknown) {
@@ -92,9 +92,11 @@ function stringValue(value: unknown) {
     />
     <header
       v-else-if="showEmptyHeader !== false"
-      class="grid gap-1 border-b border-[color:var(--app-border)] bg-[rgba(255,253,247,0.88)] px-4 py-4 max-sm:px-3"
+      class="grid gap-1 border-b border-[color:var(--app-border)] bg-[color:var(--app-panel)] px-4 py-4 max-sm:px-3"
     >
-      <p class="m-0 text-xs font-bold uppercase tracking-[0.14em] text-[color:var(--app-text-soft)]">
+      <p
+        class="m-0 text-xs font-bold uppercase tracking-[0.14em] text-[color:var(--app-text-soft)]"
+      >
         {{ emptyEyebrow || 'Codex workspace' }}
       </p>
       <h2 class="m-0 text-xl font-semibold text-[color:var(--app-text)]">
@@ -102,19 +104,16 @@ function stringValue(value: unknown) {
       </h2>
     </header>
 
-    <div
-      v-if="errorMessage || successMessage"
-      class="grid gap-2 px-4 pt-3 max-sm:px-3"
-    >
+    <div v-if="errorMessage || successMessage" class="grid gap-2 px-4 pt-3 max-sm:px-3">
       <p
         v-if="errorMessage"
-        class="m-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700"
+        class="m-0 rounded-lg border border-[color:var(--app-danger-border)] bg-[color:var(--app-danger-bg)] px-3 py-2 text-sm font-semibold text-[color:var(--app-danger-text)]"
       >
         {{ errorMessage }}
       </p>
       <p
         v-else-if="successMessage"
-        class="m-0 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
+        class="m-0 rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-success-bg)] px-3 py-2 text-sm font-semibold text-[color:var(--app-success-text)]"
       >
         {{ successMessage }}
       </p>
@@ -122,14 +121,17 @@ function stringValue(value: unknown) {
 
     <div
       v-if="gitInfo"
-      class="flex min-w-0 items-center gap-2 border-b border-[rgba(34,66,72,0.08)] bg-[rgba(255,253,247,0.72)] px-4 py-1.5 text-xs text-[color:var(--app-text-soft)] max-sm:px-3"
+      class="flex min-w-0 items-center gap-2 border-b border-[color:var(--app-border)] bg-[color:var(--app-surface-translucent)] px-4 py-1.5 text-xs text-[color:var(--app-text-soft)] max-sm:px-3"
       data-codex-git-info
     >
       <i class="pi pi-code-branch shrink-0 text-[0.68rem]"></i>
       <span v-if="gitBranch" class="min-w-0 truncate font-semibold text-[color:var(--app-text)]">
         {{ gitBranch }}
       </span>
-      <code v-if="gitShortSha" class="shrink-0 rounded bg-white/70 px-1.5 py-0.5 text-[0.68rem]">
+      <code
+        v-if="gitShortSha"
+        class="shrink-0 rounded bg-[color:var(--app-surface-muted)] px-1.5 py-0.5 text-[0.68rem]"
+      >
         {{ gitShortSha }}
       </code>
       <span v-if="gitOriginUrl" class="min-w-0 truncate" :title="gitOriginUrl">
@@ -145,11 +147,11 @@ function stringValue(value: unknown) {
       />
       <div
         v-if="isThreadLoading"
-        class="absolute inset-0 z-10 grid place-items-center bg-[rgba(255,253,247,0.58)] backdrop-blur-[2px]"
+        class="absolute inset-0 z-10 grid place-items-center bg-[color:var(--app-surface-overlay)] backdrop-blur-[2px]"
         data-codex-thread-loading
       >
         <div
-          class="inline-flex items-center gap-2 rounded-lg border border-[color:var(--app-border)] bg-[rgba(255,252,245,0.96)] px-3 py-2 text-sm font-semibold text-[color:var(--app-text-soft)] shadow-[0_14px_34px_rgba(24,44,48,0.10)]"
+          class="inline-flex items-center gap-2 rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-panel-strong)] px-3 py-2 text-sm font-semibold text-[color:var(--app-text-soft)] shadow-[0_14px_34px_var(--app-shadow-color)]"
         >
           <i class="pi pi-spinner pi-spin text-[0.8rem]"></i>
           <span>Loading conversation</span>

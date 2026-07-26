@@ -4,6 +4,7 @@ import { definePreset } from '@primeuix/themes'
 import Aura from '@primeuix/themes/aura'
 
 import App from './App.vue'
+import { initializeColorScheme } from './composables/useColorScheme'
 import router from './router'
 import 'primeicons/primeicons.css'
 import './styles/index.css'
@@ -26,23 +27,41 @@ const YierPreset = definePreset(Aura, {
     colorScheme: {
       light: {
         surface: {
-          0: '#fffdf7',
-          50: '#f9f5ea',
-          100: '#f1ead6',
-          200: '#e6dcc1',
-          300: '#d2c3a2',
-          400: '#b79f7c',
-          500: '#997d5d',
-          600: '#7d644a',
-          700: '#624d39',
-          800: '#433428',
-          900: '#251d17',
-          950: '#16110d',
+          0: '#ffffff',
+          50: '#f7f8f7',
+          100: '#eff1ef',
+          200: '#dfe3e0',
+          300: '#c8ceca',
+          400: '#9ea7a1',
+          500: '#77817b',
+          600: '#5b645f',
+          700: '#444b47',
+          800: '#2d322f',
+          900: '#202421',
+          950: '#121513',
+        },
+      },
+      dark: {
+        surface: {
+          0: '#ffffff',
+          50: '#f4f6f4',
+          100: '#e4e8e5',
+          200: '#c8ceca',
+          300: '#a9b1ac',
+          400: '#858f89',
+          500: '#67716b',
+          600: '#505953',
+          700: '#3a403c',
+          800: '#292e2b',
+          900: '#202421',
+          950: '#141715',
         },
       },
     },
   },
 })
+
+initializeColorScheme()
 
 const app = createApp(App)
 
@@ -51,7 +70,7 @@ app.use(PrimeVue, {
   theme: {
     preset: YierPreset,
     options: {
-      darkModeSelector: false,
+      darkModeSelector: '.app-dark',
       cssLayer: false,
     },
   },

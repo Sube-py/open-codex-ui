@@ -37,12 +37,9 @@ async function submitLogin() {
   isSubmitting.value = true
 
   try {
-    await apiPost<AuthSessionResponse>(
-      '/api/auth/login',
-      {
-        password: password.value,
-      } satisfies AuthLoginRequest,
-    )
+    await apiPost<AuthSessionResponse>('/api/auth/login', {
+      password: password.value,
+    } satisfies AuthLoginRequest)
     await router.replace(nextPath.value)
   } catch (error) {
     if (error instanceof ApiError || error instanceof Error) {
@@ -70,20 +67,19 @@ onMounted(async () => {
 
 <template>
   <main
-    class="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,#f7efe1_0%,#efe7d7_35%,#e3dbc7_100%)] px-4 py-6 text-[color:var(--app-text)] sm:px-6 lg:px-8"
+    class="relative min-h-screen overflow-hidden bg-[color:var(--app-bg)] px-4 py-6 text-[color:var(--app-text)] sm:px-6 lg:px-8"
   >
-    <div class="pointer-events-none absolute inset-0 overflow-hidden">
-      <div class="absolute top-[-8rem] right-[-5rem] h-[18rem] w-[18rem] rounded-full bg-[rgba(18,126,129,0.12)] blur-3xl"></div>
-      <div class="absolute bottom-[-9rem] left-[-4rem] h-[20rem] w-[20rem] rounded-full bg-[rgba(148,92,52,0.14)] blur-3xl"></div>
-    </div>
-
-    <div class="relative mx-auto flex min-h-[calc(100vh-3rem)] max-w-5xl items-center justify-center">
+    <div
+      class="relative mx-auto flex min-h-[calc(100vh-3rem)] max-w-5xl items-center justify-center"
+    >
       <section
-        class="grid w-full max-w-4xl overflow-hidden rounded-[2rem] border border-[rgba(56,73,75,0.12)] bg-[rgba(255,251,244,0.84)] shadow-[0_30px_80px_rgba(42,55,58,0.14)] backdrop-blur-[16px] lg:grid-cols-[minmax(0,1.2fr)_minmax(22rem,26rem)]"
+        class="grid w-full max-w-4xl overflow-hidden rounded-[2rem] border border-[color:var(--app-border)] bg-[color:var(--app-panel)] shadow-[var(--app-shadow)] backdrop-blur-[16px] lg:grid-cols-[minmax(0,1.2fr)_minmax(22rem,26rem)]"
       >
         <div class="flex flex-col justify-between gap-8 px-6 py-8 sm:px-8 sm:py-10">
           <div class="space-y-5">
-            <p class="m-0 text-[0.76rem] font-bold uppercase tracking-[0.22em] text-[color:var(--app-accent-deep)]">
+            <p
+              class="m-0 text-[0.76rem] font-bold uppercase tracking-[0.22em] text-[color:var(--app-accent-deep)]"
+            >
               Protected Workspace
             </p>
             <div class="space-y-3">
@@ -94,7 +90,9 @@ onMounted(async () => {
                 <br />
                 the console wakes up.
               </h1>
-              <p class="m-0 max-w-[34rem] text-[1rem] leading-[1.75] text-[color:var(--app-text-soft)]">
+              <p
+                class="m-0 max-w-[34rem] text-[1rem] leading-[1.75] text-[color:var(--app-text-soft)]"
+              >
                 This deployment is protected with a shared access password. Enter it once and the
                 browser will keep a secure session cookie for the app.
               </p>
@@ -102,7 +100,7 @@ onMounted(async () => {
           </div>
 
           <div
-            class="grid gap-3 rounded-[1.5rem] border border-[rgba(56,73,75,0.08)] bg-[rgba(255,255,255,0.58)] p-4 text-[0.95rem] text-[color:var(--app-text-soft)] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
+            class="grid gap-3 rounded-[1.5rem] border border-[color:var(--app-border)] bg-[color:var(--app-surface-translucent)] p-4 text-[0.95rem] text-[color:var(--app-text-soft)]"
           >
             <div class="flex items-center gap-3">
               <span
@@ -119,14 +117,18 @@ onMounted(async () => {
         </div>
 
         <div
-          class="border-t border-[rgba(56,73,75,0.08)] bg-[rgba(248,243,233,0.84)] px-6 py-8 sm:px-8 sm:py-10 lg:border-t-0 lg:border-l"
+          class="border-t border-[color:var(--app-border)] bg-[color:var(--app-surface-muted)] px-6 py-8 sm:px-8 sm:py-10 lg:border-t-0 lg:border-l"
         >
           <form class="flex h-full flex-col justify-center gap-5" @submit.prevent="submitLogin">
             <div class="space-y-2">
-              <p class="m-0 text-[0.8rem] font-bold uppercase tracking-[0.2em] text-[color:var(--app-text-soft)]">
+              <p
+                class="m-0 text-[0.8rem] font-bold uppercase tracking-[0.2em] text-[color:var(--app-text-soft)]"
+              >
                 Access
               </p>
-              <h2 class="m-0 text-[1.7rem] font-semibold text-[color:var(--app-text)]">Unlock Yier</h2>
+              <h2 class="m-0 text-[1.7rem] font-semibold text-[color:var(--app-text)]">
+                Unlock Yier
+              </h2>
               <p class="m-0 text-[0.96rem] leading-[1.7] text-[color:var(--app-text-soft)]">
                 Use the deployment password configured on the server.
               </p>

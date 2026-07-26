@@ -44,7 +44,9 @@ function startMobileThread(projectPath: string, hostId?: string) {
 </script>
 
 <template>
-  <div class="grid h-dvh grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] overflow-hidden bg-[color:var(--app-bg)] max-lg:grid-cols-1">
+  <div
+    class="grid h-dvh grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] overflow-hidden bg-[color:var(--app-bg)] max-lg:grid-cols-1"
+  >
     <CodexSidebar
       v-model:project-path="codex.projectPathDraft"
       class="max-lg:hidden"
@@ -65,12 +67,12 @@ function startMobileThread(projectPath: string, hostId?: string) {
 
     <main class="flex min-h-0 flex-col overflow-hidden">
       <div
-        class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)] items-center gap-2 border-b border-[color:var(--app-border)] bg-[rgba(255,253,247,0.94)] px-4 py-2 pt-[calc(0.5rem+env(safe-area-inset-top))] max-sm:px-3"
+        class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)] items-center gap-2 border-b border-[color:var(--app-border)] bg-[color:var(--app-panel-strong)] px-4 py-2 pt-[calc(0.5rem+env(safe-area-inset-top))] max-sm:px-3"
       >
         <div class="flex min-w-0 items-center gap-2 justify-self-start">
           <button
             type="button"
-            class="hidden h-8 shrink-0 items-center gap-2 rounded-lg border border-[color:var(--app-border)] bg-white px-2.5 text-sm font-semibold text-[color:var(--app-text)] max-lg:inline-flex"
+            class="hidden h-8 shrink-0 items-center gap-2 rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface-raised)] px-2.5 text-sm font-semibold text-[color:var(--app-text)] max-lg:inline-flex"
             aria-label="Open Codex threads"
             data-codex-mobile-thread-drawer-open
             @click="openMobileThreadDrawer"
@@ -80,9 +82,18 @@ function startMobileThread(projectPath: string, hostId?: string) {
           </button>
           <span
             class="h-2.5 w-2.5 shrink-0 rounded-full max-sm:hidden"
-            :class="codex.status === 'open' ? 'bg-emerald-500' : codex.status === 'connecting' ? 'bg-amber-500' : 'bg-red-500'"
+            :class="
+              codex.status === 'open'
+                ? 'bg-emerald-500'
+                : codex.status === 'connecting'
+                  ? 'bg-amber-500'
+                  : 'bg-red-500'
+            "
           ></span>
-          <span class="truncate text-sm font-semibold text-[color:var(--app-text)] max-sm:hidden" data-codex-connection-status>
+          <span
+            class="truncate text-sm font-semibold text-[color:var(--app-text)] max-sm:hidden"
+            data-codex-connection-status
+          >
             Codex {{ codex.status }}
           </span>
         </div>

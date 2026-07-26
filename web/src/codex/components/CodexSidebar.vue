@@ -352,7 +352,7 @@ async function copyThreadId(threadId: string) {
 
 <template>
   <aside
-    class="flex min-h-0 flex-col border-r border-[color:var(--app-border)] bg-[rgba(255,253,247,0.82)]"
+    class="flex min-h-0 flex-col border-r border-[color:var(--app-border)] bg-[color:var(--app-panel)]"
   >
     <header
       class="flex items-center justify-between gap-3 border-b border-[color:var(--app-border)] px-4 py-3"
@@ -395,7 +395,7 @@ async function copyThreadId(threadId: string) {
           :data-codex-section-key="project.key"
         >
           <div
-            class="group/project relative flex items-center rounded-lg transition hover:bg-white/65 focus-within:bg-white/65"
+            class="group/project relative flex items-center rounded-lg transition hover:bg-[color:var(--app-hover)] focus-within:bg-[color:var(--app-hover)]"
             data-codex-project-row
           >
             <button
@@ -448,8 +448,8 @@ async function copyThreadId(threadId: string) {
               data-codex-thread-row
               :class="
                 thread.thread_id === activeThreadId
-                  ? 'border-[rgba(21,94,99,0.24)] bg-[rgba(21,94,99,0.08)]'
-                  : 'border-transparent hover:border-[rgba(21,94,99,0.24)] hover:bg-[rgba(21,94,99,0.08)] focus-within:border-[rgba(21,94,99,0.24)] focus-within:bg-[rgba(21,94,99,0.08)]'
+                  ? 'border-[color:var(--app-focus)] bg-[color:var(--app-selected)]'
+                  : 'border-transparent hover:border-[color:var(--app-focus)] hover:bg-[color:var(--app-selected)] focus-within:border-[color:var(--app-focus)] focus-within:bg-[color:var(--app-selected)]'
               "
             >
               <InputText
@@ -558,7 +558,7 @@ async function copyThreadId(threadId: string) {
     >
       <button
         type="button"
-        class="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-sm font-semibold text-[color:var(--app-text)] transition hover:bg-white/70"
+        class="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-sm font-semibold text-[color:var(--app-text)] transition hover:bg-[color:var(--app-hover)]"
         data-codex-open-settings
         @click="settingsVisible = true"
       >

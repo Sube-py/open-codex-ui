@@ -221,12 +221,10 @@ const visibleTurnViews = computed<VirtualTurnView[]>(() => {
     return []
   }
 
-  return turnViews.value
-    .slice(startIndex, endIndex + 1)
-    .map((turnView, offset) => ({
-      turnView,
-      originalIndex: hydratedTurnStartIndex.value + startIndex + offset,
-    }))
+  return turnViews.value.slice(startIndex, endIndex + 1).map((turnView, offset) => ({
+    turnView,
+    originalIndex: hydratedTurnStartIndex.value + startIndex + offset,
+  }))
 })
 
 const virtualTopSpacerHeight = computed(() => virtualTurnWindow.value.topSpacerHeight)
@@ -768,7 +766,13 @@ function itemText(item: JsonRecord) {
     return imageViewPath(item)
   }
   if (type === 'imageGeneration') {
-    return firstString(item.prompt, item.text, item.path, outputText(item.content), outputText(item.result))
+    return firstString(
+      item.prompt,
+      item.text,
+      item.path,
+      outputText(item.content),
+      outputText(item.result),
+    )
   }
   if (type === 'sleep') {
     return 'Sleeping'
@@ -789,12 +793,9 @@ function goalDisplayText(text: string) {
 }
 
 function itemImages(item: JsonRecord) {
-  const candidates = [
-    item.content,
-    item.input,
-    item.attachments,
-    item.imageAttachments,
-  ].flatMap((value) => (Array.isArray(value) ? value : []))
+  const candidates = [item.content, item.input, item.attachments, item.imageAttachments].flatMap(
+    (value) => (Array.isArray(value) ? value : []),
+  )
   return candidates
     .filter(isRecord)
     .map((value) => {
@@ -861,9 +862,9 @@ async function copyMessageText(text: string) {
 
 function messageTimestamp(item: JsonRecord, turn: CodexTurnState) {
   return formatTimestamp(
-    firstNumber(item.createdAt, item.created_at, item.startedAt, item.started_at)
-      ?? turn.turnStartedAtMs
-      ?? null,
+    firstNumber(item.createdAt, item.created_at, item.startedAt, item.started_at) ??
+      turn.turnStartedAtMs ??
+      null,
   )
 }
 
@@ -897,7 +898,11 @@ function goalAchievementLabel(turn: CodexTurnState) {
   }
   const seconds = firstNumber(goal.timeUsedSeconds)
   const duration = seconds != null ? formatDuration(seconds * 1000) : ''
-  const completedAt = firstNumber(goal.updatedAt, turn.finalAssistantStartedAtMs, turn.turnStartedAtMs)
+  const completedAt = firstNumber(
+    goal.updatedAt,
+    turn.finalAssistantStartedAtMs,
+    turn.turnStartedAtMs,
+  )
   const time = absoluteTime(completedAt)
   if (duration && time) {
     return `Goal achieved in ${duration} ${time}`
@@ -1211,7 +1216,9 @@ function gitDetail(item: JsonRecord) {
   const parts = [
     firstString(item.branch) ? `branch ${firstString(item.branch)}` : '',
     firstString(item.sha) ? `sha ${firstString(item.sha)}` : '',
-    firstString(item.originUrl, item.origin_url) ? `origin ${firstString(item.originUrl, item.origin_url)}` : '',
+    firstString(item.originUrl, item.origin_url)
+      ? `origin ${firstString(item.originUrl, item.origin_url)}`
+      : '',
     firstString(item.diff) ? firstString(item.diff) : '',
   ]
   return parts.filter(Boolean).join('\n')
@@ -1225,19 +1232,16 @@ function todoItems(item: JsonRecord) {
       : Array.isArray(item.todos)
         ? item.todos
         : []
-  return plan
-    .filter(isRecord)
-    .map((todo, index) => ({
-      id: firstString(todo.id) || `${index}`,
-      step: firstString(todo.step, todo.text, todo.content, todo.title) || `Task ${index + 1}`,
-      status: firstString(todo.status, todo.state).toLowerCase() || 'pending',
-    }))
+  return plan.filter(isRecord).map((todo, index) => ({
+    id: firstString(todo.id) || `${index}`,
+    step: firstString(todo.step, todo.text, todo.content, todo.title) || `Task ${index + 1}`,
+    status: firstString(todo.status, todo.state).toLowerCase() || 'pending',
+  }))
 }
 
 function todoCompletedCount(item: JsonRecord) {
-  return todoItems(item).filter(
-    (todo) => todo.status === 'completed' || todo.status === 'complete',
-  ).length
+  return todoItems(item).filter((todo) => todo.status === 'completed' || todo.status === 'complete')
+    .length
 }
 
 function todoSummary(item: JsonRecord) {
@@ -1430,7 +1434,7 @@ const justDebug = false
 <template>
   <section
     ref="conversationBody"
-    class="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip bg-[rgba(255,253,247,0.38)] px-5 py-4 [overflow-anchor:none] max-sm:px-2.5"
+    class="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip bg-[color:var(--app-bg)] px-5 py-4 [overflow-anchor:none] max-sm:px-2.5"
     data-codex-conversation-body
     @scroll="onConversationScroll"
   >
@@ -1476,7 +1480,9 @@ const justDebug = false
         <div
           class="flex min-w-0 flex-wrap items-center gap-2 text-[0.74rem] text-[color:var(--app-text-soft)]"
         >
-          <span class="font-semibold text-[color:var(--app-text)]"> Turn {{ originalIndex + 1 }} </span>
+          <span class="font-semibold text-[color:var(--app-text)]">
+            Turn {{ originalIndex + 1 }}
+          </span>
           <span v-if="justDebug">{{ statusLabel(turnView.turn.status) }}</span>
           <code v-if="justDebug && turnView.turn.turnId" class="truncate">{{
             turnView.turn.turnId
@@ -1499,7 +1505,7 @@ const justDebug = false
               data-codex-user-message-shell
             >
               <div
-                class="relative min-w-0 w-full overflow-hidden rounded-2xl border border-[rgba(21,94,99,0.18)] bg-[rgba(21,94,99,0.08)] px-3.5 py-2.5 shadow-[0_10px_28px_rgba(24,44,48,0.04)]"
+                class="relative min-w-0 w-full overflow-hidden rounded-2xl border border-[color:var(--app-focus)] bg-[color:var(--app-accent-soft)] px-3.5 py-2.5 shadow-[0_10px_28px_var(--app-shadow-color)]"
                 data-codex-bubble
               >
                 <div
@@ -1515,7 +1521,7 @@ const justDebug = false
                   <img
                     v-for="image in itemImages(userItem.item)"
                     :key="image.src"
-                    class="max-h-64 min-h-20 w-full rounded-lg border border-[rgba(21,94,99,0.12)] object-cover"
+                    class="max-h-64 min-h-20 w-full rounded-lg border border-[color:var(--app-border)] object-cover"
                     :src="image.src"
                     :alt="image.alt"
                     data-codex-message-image
@@ -1539,7 +1545,7 @@ const justDebug = false
                 </span>
                 <button
                   type="button"
-                  class="inline-flex h-6 w-6 items-center justify-center rounded-md transition hover:bg-white/70 hover:text-[color:var(--app-text)]"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded-md transition hover:bg-[color:var(--app-hover)] hover:text-[color:var(--app-text)]"
                   aria-label="Copy message"
                   title="Copy"
                   data-codex-copy-message
@@ -1565,7 +1571,9 @@ const justDebug = false
             >
               <i
                 class="pi text-[0.62rem]"
-                :class="itemType(systemItem.item) === 'enteredReviewMode' ? 'pi-search' : 'pi-check'"
+                :class="
+                  itemType(systemItem.item) === 'enteredReviewMode' ? 'pi-search' : 'pi-check'
+                "
               ></i>
               <span class="min-w-0 truncate">{{ reviewModeLabel(systemItem.item) }}</span>
             </span>
@@ -1576,7 +1584,7 @@ const justDebug = false
             <div class="flex min-w-0 items-center gap-2 text-sm text-[color:var(--app-text-soft)]">
               <button
                 type="button"
-                class="group inline-flex max-w-full shrink-0 items-center gap-1.5 rounded-md border border-transparent px-1 py-0.5 text-left transition hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(21,94,99,0.18)]"
+                class="group inline-flex max-w-full shrink-0 items-center gap-1.5 rounded-md border border-transparent px-1 py-0.5 text-left transition hover:bg-[color:var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus)]"
                 :aria-expanded="isWorkExpanded(turnView)"
                 data-codex-work-toggle
                 @click="toggleWork(turnView)"
@@ -1585,8 +1593,8 @@ const justDebug = false
                   class="truncate"
                   :status="turnView.turn.status"
                   :work-started-at-ms="
-                    turnView.turn.firstTurnWorkItemStartedAtMs
-                    ?? firstTurnWorkItemStartedAtMsFromItems(turnView.turn)
+                    turnView.turn.firstTurnWorkItemStartedAtMs ??
+                    firstTurnWorkItemStartedAtMsFromItems(turnView.turn)
                   "
                   :turn-started-at-ms="turnView.turn.turnStartedAtMs"
                   :final-assistant-started-at-ms="turnView.turn.finalAssistantStartedAtMs"
@@ -1597,12 +1605,12 @@ const justDebug = false
                   :class="isWorkExpanded(turnView) ? 'rotate-90' : ''"
                 ></i>
               </button>
-              <span class="h-px min-w-0 flex-1 bg-[rgba(34,66,72,0.14)]"></span>
+              <span class="h-px min-w-0 flex-1 bg-[color:var(--app-border-strong)]"></span>
             </div>
 
             <div
               v-if="isWorkExpanded(turnView)"
-              class="grid min-w-0 gap-1.5 border-l border-[rgba(34,66,72,0.12)] pl-3 max-sm:pl-2"
+              class="grid min-w-0 gap-1.5 border-l border-[color:var(--app-border)] pl-3 max-sm:pl-2"
               data-codex-work-items
             >
               <template v-for="unit in workUnitsForBlock(block)" :key="unit.id">
@@ -1621,7 +1629,7 @@ const justDebug = false
                 >
                   <button
                     type="button"
-                    class="group inline-flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 text-left transition hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(21,94,99,0.18)]"
+                    class="group inline-flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 text-left transition hover:bg-[color:var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus)]"
                     :aria-expanded="isItemExpanded(unit.id)"
                     data-codex-activity-toggle
                     @click="toggleItem(unit.id)"
@@ -1659,7 +1667,7 @@ const justDebug = false
                     >
                       <button
                         type="button"
-                        class="group flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 text-left text-xs text-[color:var(--app-text-soft)] transition hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(21,94,99,0.18)]"
+                        class="group flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 text-left text-xs text-[color:var(--app-text-soft)] transition hover:bg-[color:var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus)]"
                         :aria-expanded="isItemExpanded(workItem.id)"
                         data-codex-work-row
                         @click="hasExpandableWorkDetail(workItem.item) && toggleItem(workItem.id)"
@@ -1678,16 +1686,16 @@ const justDebug = false
                       <div v-if="isItemExpanded(workItem.id)" class="min-w-0 pl-2">
                         <div
                           v-if="itemType(workItem.item) === 'commandExecution'"
-                          class="group/shell min-w-0 overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-[rgba(245,247,246,0.92)] text-[color:var(--app-text)]"
+                          class="group/shell min-w-0 overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface-translucent)] text-[color:var(--app-text)]"
                           :class="
                             !isItemInProgress(workItem.item) && !commandSucceeded(workItem.item)
-                              ? 'border-red-200 bg-red-50/55'
+                              ? 'border-[color:var(--app-danger-border)] bg-[color:var(--app-danger-bg)]'
                               : ''
                           "
                           data-codex-command-output
                         >
                           <div
-                            class="flex min-w-0 items-center justify-between gap-2 bg-[rgba(34,66,72,0.04)] px-2 py-1 font-sans text-sm text-[color:var(--app-text-soft)] select-none"
+                            class="flex min-w-0 items-center justify-between gap-2 bg-[color:var(--app-hover)] px-2 py-1 font-sans text-sm text-[color:var(--app-text-soft)] select-none"
                             data-codex-command-header
                           >
                             <span>Shell</span>
@@ -1705,14 +1713,18 @@ const justDebug = false
                                   role="button"
                                   tabindex="0"
                                   @click="copyMessageText(commandText(workItem.item))"
-                                  @keydown.enter.prevent="copyMessageText(commandText(workItem.item))"
-                                  @keydown.space.prevent="copyMessageText(commandText(workItem.item))"
+                                  @keydown.enter.prevent="
+                                    copyMessageText(commandText(workItem.item))
+                                  "
+                                  @keydown.space.prevent="
+                                    copyMessageText(commandText(workItem.item))
+                                  "
                                 >
                                   $ {{ commandText(workItem.item) }}
                                 </code>
                                 <button
                                   type="button"
-                                  class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--app-text-soft)] opacity-0 transition hover:bg-white/70 hover:text-[color:var(--app-text)] group-hover/command:opacity-100 focus-visible:opacity-100"
+                                  class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--app-text-soft)] opacity-0 transition hover:bg-[color:var(--app-hover)] hover:text-[color:var(--app-text)] group-hover/command:opacity-100 focus-visible:opacity-100"
                                   aria-label="Copy command"
                                   title="Copy command"
                                   data-codex-copy-command
@@ -1723,14 +1735,17 @@ const justDebug = false
                               </div>
                             </div>
 
-                            <div class="group/output relative min-h-5 pr-0" data-codex-shell-content>
+                            <div
+                              class="group/output relative min-h-5 pr-0"
+                              data-codex-shell-content
+                            >
                               <pre
                                 class="m-0 flex max-h-[140px] max-w-full flex-col-reverse overflow-x-auto overflow-y-auto whitespace-pre p-2 font-mono text-[0.78rem] font-medium leading-5 text-[color:var(--app-text-soft)]"
                                 data-codex-command-output-text
                               ><code>{{ workItemDetail(workItem.item) || 'No output' }}</code></pre>
                               <button
                                 type="button"
-                                class="absolute right-2.5 top-0 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--app-text-soft)] opacity-0 transition hover:bg-white/70 hover:text-[color:var(--app-text)] group-hover/output:opacity-100 focus-visible:opacity-100"
+                                class="absolute right-2.5 top-0 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--app-text-soft)] opacity-0 transition hover:bg-[color:var(--app-hover)] hover:text-[color:var(--app-text)] group-hover/output:opacity-100 focus-visible:opacity-100"
                                 aria-label="Copy output"
                                 title="Copy output"
                                 data-codex-copy-output
@@ -1756,7 +1771,7 @@ const justDebug = false
 
                         <pre
                           v-else-if="workItemDetail(workItem.item)"
-                          class="m-0 max-h-56 max-w-full overflow-auto overscroll-contain rounded-lg border border-[rgba(34,66,72,0.08)] bg-white/75 p-2.5 text-xs leading-5 text-[color:var(--app-text-soft)]"
+                          class="m-0 max-h-56 max-w-full overflow-auto overscroll-contain rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface)] p-2.5 text-xs leading-5 text-[color:var(--app-text-soft)]"
                           data-codex-raw
                           >{{ workItemDetail(workItem.item) }}</pre
                         >
@@ -1765,15 +1780,11 @@ const justDebug = false
                   </div>
                 </div>
 
-                <div
-                  v-else-if="unit.kind === 'image'"
-                  class="min-w-0 py-1"
-                  data-codex-image-view
-                >
+                <div v-else-if="unit.kind === 'image'" class="min-w-0 py-1" data-codex-image-view>
                   <button
                     v-if="codexImageUrl(unit.items[0]?.item ?? {})"
                     type="button"
-                    class="group block max-w-[min(18rem,100%)] min-w-0 overflow-hidden rounded-md text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(21,94,99,0.18)]"
+                    class="group block max-w-[min(18rem,100%)] min-w-0 overflow-hidden rounded-md text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus)]"
                     aria-label="Preview image"
                     data-codex-image-preview-link
                     @click="setImagePreviewVisible(unit.items[0]?.id ?? unit.id, true)"
@@ -1851,7 +1862,7 @@ const justDebug = false
 
                 <div
                   v-else-if="unit.kind === 'todo'"
-                  class="min-w-0 rounded-lg bg-[rgba(255,255,255,0.58)] px-2.5 py-2 text-sm text-[color:var(--app-text-soft)]"
+                  class="min-w-0 rounded-lg bg-[color:var(--app-surface-translucent)] px-2.5 py-2 text-sm text-[color:var(--app-text-soft)]"
                   data-codex-todo-list
                 >
                   <button
@@ -1861,7 +1872,9 @@ const justDebug = false
                     data-codex-todo-toggle
                     @click="toggleItem(unit.id)"
                   >
-                    <span class="min-w-0 truncate">{{ todoSummary(unit.items[0]?.item ?? {}) }}</span>
+                    <span class="min-w-0 truncate">{{
+                      todoSummary(unit.items[0]?.item ?? {})
+                    }}</span>
                     <i
                       class="pi pi-chevron-down shrink-0 text-[0.62rem] opacity-0 transition-all group-hover:opacity-60"
                       :class="isItemExpanded(unit.id) ? 'rotate-180 opacity-80' : ''"
@@ -1880,7 +1893,11 @@ const justDebug = false
                     >
                       <i
                         class="pi shrink-0 text-[0.64rem]"
-                        :class="isTodoComplete(todo.status) ? 'pi-check text-emerald-700' : 'pi-circle text-[color:var(--app-text-soft)]'"
+                        :class="
+                          isTodoComplete(todo.status)
+                            ? 'pi-check text-[color:var(--app-success-text)]'
+                            : 'pi-circle text-[color:var(--app-text-soft)]'
+                        "
                       ></i>
                       <span class="shrink-0 text-[color:var(--app-text-soft)]">
                         {{ todoIndex + 1 }}.
@@ -1936,7 +1953,7 @@ const justDebug = false
                 </span>
                 <button
                   type="button"
-                  class="inline-flex h-6 w-6 items-center justify-center rounded-md transition hover:bg-white/70 hover:text-[color:var(--app-text)]"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded-md transition hover:bg-[color:var(--app-hover)] hover:text-[color:var(--app-text)]"
                   aria-label="Copy message"
                   title="Copy"
                   data-codex-copy-message
@@ -1947,7 +1964,7 @@ const justDebug = false
                 <button
                   v-if="state?.id"
                   type="button"
-                  class="inline-flex h-6 w-6 items-center justify-center rounded-md transition hover:bg-white/70 hover:text-[color:var(--app-text)]"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded-md transition hover:bg-[color:var(--app-hover)] hover:text-[color:var(--app-text)]"
                   aria-label="Fork from here"
                   title="Fork"
                   data-codex-fork-message
@@ -1961,15 +1978,19 @@ const justDebug = false
 
           <article
             v-else
-            class="min-w-0 max-w-[min(52rem,100%)] rounded-xl border border-[color:var(--app-border)] bg-white/70 p-3"
+            class="min-w-0 max-w-[min(52rem,100%)] rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-surface-translucent)] p-3"
             data-codex-unknown-item
           >
             <pre
               v-for="unknownItem in block.items"
               :key="unknownItem.id"
-              class="m-0 max-h-80 max-w-full overflow-auto overscroll-contain rounded-lg border border-[rgba(34,66,72,0.08)] bg-white/78 p-3 text-xs leading-5 text-[color:var(--app-text-soft)]"
+              class="m-0 max-h-80 max-w-full overflow-auto overscroll-contain rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface)] p-3 text-xs leading-5 text-[color:var(--app-text-soft)]"
               data-codex-raw
-              >{{ shouldShowUnknownJson(unknownItem.item) ? compactJson(unknownItem.item) : itemText(unknownItem.item) }}</pre
+              >{{
+                shouldShowUnknownJson(unknownItem.item)
+                  ? compactJson(unknownItem.item)
+                  : itemText(unknownItem.item)
+              }}</pre
             >
           </article>
         </template>
@@ -1984,14 +2005,16 @@ const justDebug = false
 
         <div
           v-if="hasTurnReport(turnView)"
-          class="group/turn-diff-header flex max-w-full flex-col overflow-hidden rounded-lg border border-[rgba(34,66,72,0.12)] bg-white/78 text-xs text-[color:var(--app-text-soft)] shadow-[0_10px_24px_rgba(24,44,48,0.045)] [--thread-resource-card-row-padding-x:0.75rem] [--turn-diff-row-padding-y:0.25rem]"
+          class="group/turn-diff-header flex max-w-full flex-col overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface-translucent)] text-xs text-[color:var(--app-text-soft)] shadow-[0_10px_24px_var(--app-shadow-color)] [--thread-resource-card-row-padding-x:0.75rem] [--turn-diff-row-padding-y:0.25rem]"
           data-codex-turn-summary
           data-codex-turn-report
         >
           <div
-            class="flex min-w-0 items-center gap-2 border-b border-[rgba(34,66,72,0.08)] px-[var(--thread-resource-card-row-padding-x)] py-2 font-semibold text-[color:var(--app-text)]"
+            class="flex min-w-0 items-center gap-2 border-b border-[color:var(--app-border)] px-[var(--thread-resource-card-row-padding-x)] py-2 font-semibold text-[color:var(--app-text)]"
           >
-            <i class="pi pi-check-circle shrink-0 text-[0.72rem] text-emerald-600"></i>
+            <i
+              class="pi pi-check-circle shrink-0 text-[0.72rem] text-[color:var(--app-success-text)]"
+            ></i>
             <span class="min-w-0 truncate">Turn report</span>
             <span class="ml-auto min-w-0 truncate text-[color:var(--app-text-soft)]">
               {{ turnView.report.summary }}
@@ -2009,9 +2032,13 @@ const justDebug = false
                 {{ file.path }}
               </span>
               <span class="font-mono font-semibold text-[color:var(--app-text)]">
-                <span v-if="file.linesAdded" class="text-emerald-700">+{{ file.linesAdded }}</span>
+                <span v-if="file.linesAdded" class="text-[color:var(--app-success-text)]"
+                  >+{{ file.linesAdded }}</span
+                >
                 <span v-if="file.linesAdded && file.linesRemoved"> / </span>
-                <span v-if="file.linesRemoved" class="text-red-700">-{{ file.linesRemoved }}</span>
+                <span v-if="file.linesRemoved" class="text-[color:var(--app-danger-text)]"
+                  >-{{ file.linesRemoved }}</span
+                >
               </span>
             </div>
             <div

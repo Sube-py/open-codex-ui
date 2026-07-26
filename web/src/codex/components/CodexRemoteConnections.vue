@@ -111,15 +111,15 @@ function remoteStatusLabel(connection: CodexRemoteConnection) {
 function remoteStatusClass(connection: CodexRemoteConnection) {
   const status = remoteStatus(connection).status
   if (status === 'connected') {
-    return 'bg-emerald-50 text-emerald-700'
+    return 'bg-[color:var(--app-success-bg)] text-[color:var(--app-success-text)]'
   }
   if (status === 'connecting') {
-    return 'bg-amber-50 text-amber-700'
+    return 'bg-[color:var(--app-warning-bg)] text-[color:var(--app-warning-text)]'
   }
   if (status === 'error') {
-    return 'bg-red-50 text-red-700'
+    return 'bg-[color:var(--app-danger-bg)] text-[color:var(--app-danger-text)]'
   }
-  return 'bg-slate-100 text-slate-600'
+  return 'bg-[color:var(--app-neutral-status-bg)] text-[color:var(--app-neutral-status-text)]'
 }
 
 function openAddRemoteDialog() {
@@ -357,7 +357,7 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
       <div
         v-for="connection in remoteConnections"
         :key="connection.id"
-        class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-[color:var(--app-border)] bg-white px-3 py-2.5"
+        class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-[color:var(--app-border)] bg-[color:var(--app-surface-raised)] px-3 py-2.5"
         data-codex-remote-row
       >
         <div class="min-w-0">
@@ -547,7 +547,11 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
         Remote path
         <InputText v-model="remoteDraft.remote_path" data-codex-remote-path />
       </label>
-      <p v-if="remoteError" class="m-0 text-sm text-red-700" data-codex-remote-dialog-error>
+      <p
+        v-if="remoteError"
+        class="m-0 text-sm text-[color:var(--app-danger-text)]"
+        data-codex-remote-dialog-error
+      >
         {{ remoteError }}
       </p>
       <footer class="mt-1 flex justify-end gap-2">
@@ -594,7 +598,11 @@ async function deleteRemoteConnection(connection: CodexRemoteConnection) {
           @keydown.enter.prevent="loginRemoteApiKey"
         />
       </label>
-      <p v-if="remoteError" class="m-0 text-sm text-red-700" data-codex-remote-api-key-error>
+      <p
+        v-if="remoteError"
+        class="m-0 text-sm text-[color:var(--app-danger-text)]"
+        data-codex-remote-api-key-error
+      >
         {{ remoteError }}
       </p>
       <footer class="mt-1 flex justify-end gap-2">

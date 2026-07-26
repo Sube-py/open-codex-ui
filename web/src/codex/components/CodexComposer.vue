@@ -154,9 +154,12 @@ const reasoningOptions = computed(() =>
   })),
 )
 const activeModel = computed(() => selectedModel.value || latestModel.value)
-const activeReasoningEffort = computed(() => selectedReasoningEffort.value || latestReasoningEffort.value)
+const activeReasoningEffort = computed(
+  () => selectedReasoningEffort.value || latestReasoningEffort.value,
+)
 const intelligenceTriggerLabel = computed(
-  () => `${buttonModelLabel(activeModel.value)} ${compactReasoningLabel(activeReasoningEffort.value)}`,
+  () =>
+    `${buttonModelLabel(activeModel.value)} ${compactReasoningLabel(activeReasoningEffort.value)}`,
 )
 const activePermissionOption = computed<PermissionOption>(
   () =>
@@ -221,7 +224,7 @@ const context = computed(() => contextWindowState(props.state))
 const contextRingStyle = computed(() => {
   const percent = Math.max(0, Math.min(context.value.percent, 100))
   return {
-    background: `conic-gradient(var(--app-accent) ${percent}%, rgba(21,94,99,0.14) 0)`,
+    background: `conic-gradient(var(--app-accent) ${percent}%, var(--app-border-strong) 0)`,
   }
 })
 const contextHoverTitle = computed(() => {
@@ -244,8 +247,8 @@ const canResumeGoal = computed(() =>
 const latestTodoList = computed(() => latestTodoListItem(props.state))
 const latestTodoItems = computed(() => todoItems(latestTodoList.value))
 const latestTodoSummary = computed(() => todoSummary(latestTodoList.value))
-const latestTodoCompletedCount = computed(() =>
-  latestTodoItems.value.filter((todo) => isTodoComplete(todo.status)).length,
+const latestTodoCompletedCount = computed(
+  () => latestTodoItems.value.filter((todo) => isTodoComplete(todo.status)).length,
 )
 const composerPlaceholder = computed(() => {
   if (isGoalComposeMode.value) {
@@ -254,7 +257,9 @@ const composerPlaceholder = computed(() => {
   if (props.mode === 'plan') {
     return 'Describe your task to generate a plan...'
   }
-  return props.isWorking ? 'Add a follow-up for the queue...' : 'Ask Codex to work in this thread...'
+  return props.isWorking
+    ? 'Add a follow-up for the queue...'
+    : 'Ask Codex to work in this thread...'
 })
 const slashCommands = computed(() =>
   buildSlashCommands({
@@ -454,10 +459,7 @@ function onDocumentClick(event: MouseEvent) {
     statusPanelOpen.value = false
     return
   }
-  if (
-    target.closest('[data-codex-add-menu]') ||
-    target.closest('[data-codex-add-menu-trigger]')
-  ) {
+  if (target.closest('[data-codex-add-menu]') || target.closest('[data-codex-add-menu-trigger]')) {
     // keep add menu
   } else {
     closeFloatingMenus()
@@ -533,7 +535,8 @@ function chooseReasoningEffort(reasoningEffort: string) {
   if (props.busy || props.disabled) {
     return
   }
-  selectedReasoningEffort.value = reasoningEffort === latestReasoningEffort.value ? '' : reasoningEffort
+  selectedReasoningEffort.value =
+    reasoningEffort === latestReasoningEffort.value ? '' : reasoningEffort
   intelligencePopover.value?.hide()
 }
 
@@ -980,7 +983,9 @@ function imageAttachmentFromFile(file: File): Promise<JsonRecord> {
         mimeType: file.type,
       })
     })
-    reader.addEventListener('error', () => reject(reader.error ?? new Error('Unable to read image.')))
+    reader.addEventListener('error', () =>
+      reject(reader.error ?? new Error('Unable to read image.')),
+    )
     reader.readAsDataURL(file)
   })
 }
@@ -1137,13 +1142,11 @@ function todoItems(item: JsonRecord | null) {
       : Array.isArray(item?.todos)
         ? item.todos
         : []
-  return plan
-    .filter(isRecord)
-    .map((todo, index) => ({
-      id: firstString(todo.id) || `${index}`,
-      step: firstString(todo.step, todo.text, todo.content, todo.title) || `Task ${index + 1}`,
-      status: firstString(todo.status, todo.state).toLowerCase() || 'pending',
-    }))
+  return plan.filter(isRecord).map((todo, index) => ({
+    id: firstString(todo.id) || `${index}`,
+    step: firstString(todo.step, todo.text, todo.content, todo.title) || `Task ${index + 1}`,
+    status: firstString(todo.status, todo.state).toLowerCase() || 'pending',
+  }))
 }
 
 function todoSummary(item: JsonRecord | null) {
@@ -1204,8 +1207,24 @@ function explicitContextWindow(state: CodexConversationState | null) {
     const lastBreakdown = recordFromRecord(usage, ['last'])
     const used = lastBreakdown
       ? numberFromRecord(lastBreakdown, ['totalTokens', 'total_tokens'])
-      : numberFromRecord(usage, ['usedTokens', 'used_tokens', 'inputTokens', 'input_tokens', 'used', 'totalTokens', 'total_tokens'])
-    const total = numberFromRecord(usage, ['modelContextWindow', 'model_context_window', 'totalTokens', 'total_tokens', 'limit', 'maxTokens', 'max_tokens'])
+      : numberFromRecord(usage, [
+          'usedTokens',
+          'used_tokens',
+          'inputTokens',
+          'input_tokens',
+          'used',
+          'totalTokens',
+          'total_tokens',
+        ])
+    const total = numberFromRecord(usage, [
+      'modelContextWindow',
+      'model_context_window',
+      'totalTokens',
+      'total_tokens',
+      'limit',
+      'maxTokens',
+      'max_tokens',
+    ])
     const percent = numberFromRecord(candidate, ['percent', 'ratio'])
     if (used != null && total != null && total > 0) {
       const clampedUsed = Math.min(used, total)
@@ -1307,14 +1326,14 @@ function goalProgressText(goal: CodexThreadGoal | null) {
     ref="composerShell"
     data-codex-composer-shell
   >
-    <div class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-full bg-gradient-to-t from-[rgba(255,253,247,1)] via-[rgba(255,253,247,0.96)] to-transparent"></div>
+    <div class="composer-fade pointer-events-none absolute inset-x-0 bottom-0 z-0 h-full"></div>
     <div
       class="relative z-10 mx-auto flex w-full max-w-[var(--thread-content-max-width,64rem)] flex-col px-4 max-sm:px-2.5"
       data-pip-obstacle="thread-footer"
     >
       <div
         v-if="latestTodoList"
-        class="relative z-10 mb-2 w-fit max-w-(--thread-content-max-width) min-w-0 overflow-hidden rounded-3xl border border-[color:var(--app-border)] bg-white/95 px-3 py-2 text-sm shadow-[0_10px_26px_rgba(24,44,48,0.1)] backdrop-blur-sm"
+        class="relative z-10 mb-2 w-fit max-w-(--thread-content-max-width) min-w-0 overflow-hidden rounded-3xl border border-[color:var(--app-border)] bg-[color:var(--app-panel-strong)] px-3 py-2 text-sm shadow-[0_10px_26px_var(--app-shadow-color)] backdrop-blur-sm"
         data-codex-floating-todo-list
       >
         <button
@@ -1351,7 +1370,11 @@ function goalProgressText(goal: CodexThreadGoal | null) {
           >
             <i
               class="pi shrink-0 text-[0.64rem]"
-              :class="isTodoComplete(todo.status) ? 'pi-check text-emerald-700' : 'pi-circle text-[color:var(--app-text-soft)]'"
+              :class="
+                isTodoComplete(todo.status)
+                  ? 'pi-check text-[color:var(--app-success-text)]'
+                  : 'pi-circle text-[color:var(--app-text-soft)]'
+              "
             ></i>
             <span class="shrink-0 text-[color:var(--app-text-soft)]/80">
               {{ todoIndex + 1 }}.
@@ -1366,7 +1389,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
         </div>
       </div>
       <div
-        class="grid min-w-0 gap-2 rounded-xl border border-[color:var(--app-border)] bg-white/95 p-2 shadow-[0_8px_22px_rgba(24,44,48,0.08)] transition"
+        class="grid min-w-0 gap-2 rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-panel-strong)] p-2 shadow-[0_8px_22px_var(--app-shadow-color)] transition"
         data-codex-composer
       >
         <div
@@ -1376,7 +1399,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
         >
           <template v-if="hasThreadGoal">
             <span
-              class="inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-lg bg-[rgba(21,94,99,0.08)] px-2 font-bold text-[color:var(--app-accent)]"
+              class="inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-lg bg-[color:var(--app-accent-soft)] px-2 font-bold text-[color:var(--app-accent)]"
               data-codex-goal-status
             >
               <i class="pi pi-flag text-[0.62rem]"></i>
@@ -1391,7 +1414,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
             <button
               v-if="canResumeGoal"
               type="button"
-              class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--app-text-soft)] transition hover:bg-[rgba(21,94,99,0.07)] hover:text-[color:var(--app-text)] disabled:cursor-not-allowed disabled:opacity-45"
+              class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--app-text-soft)] transition hover:bg-[color:var(--app-hover)] hover:text-[color:var(--app-text)] disabled:cursor-not-allowed disabled:opacity-45"
               aria-label="Resume goal"
               :disabled="busy || disabled"
               data-codex-goal-resume
@@ -1402,7 +1425,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
             <button
               v-else-if="goalStatus === 'active'"
               type="button"
-              class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--app-text-soft)] transition hover:bg-[rgba(21,94,99,0.07)] hover:text-[color:var(--app-text)] disabled:cursor-not-allowed disabled:opacity-45"
+              class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--app-text-soft)] transition hover:bg-[color:var(--app-hover)] hover:text-[color:var(--app-text)] disabled:cursor-not-allowed disabled:opacity-45"
               aria-label="Pause goal"
               :disabled="busy || disabled"
               data-codex-goal-pause
@@ -1412,7 +1435,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
             </button>
             <button
               type="button"
-              class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--app-text-soft)] transition hover:bg-[rgba(21,94,99,0.07)] hover:text-[color:var(--app-text)] disabled:cursor-not-allowed disabled:opacity-45"
+              class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--app-text-soft)] transition hover:bg-[color:var(--app-hover)] hover:text-[color:var(--app-text)] disabled:cursor-not-allowed disabled:opacity-45"
               aria-label="Complete goal"
               :disabled="busy || disabled"
               data-codex-goal-complete
@@ -1422,7 +1445,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
             </button>
             <button
               type="button"
-              class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--app-text-soft)] transition hover:bg-[rgba(21,94,99,0.07)] hover:text-[color:var(--app-text)] disabled:cursor-not-allowed disabled:opacity-45"
+              class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--app-text-soft)] transition hover:bg-[color:var(--app-hover)] hover:text-[color:var(--app-text)] disabled:cursor-not-allowed disabled:opacity-45"
               aria-label="Mark goal blocked"
               :disabled="busy || disabled"
               data-codex-goal-blocked
@@ -1432,7 +1455,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
             </button>
             <button
               type="button"
-              class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--app-text-soft)] transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-45"
+              class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--app-text-soft)] transition hover:bg-[color:var(--app-danger-bg)] hover:text-[color:var(--app-danger-text)] disabled:cursor-not-allowed disabled:opacity-45"
               aria-label="Clear goal"
               :disabled="busy || disabled"
               data-codex-goal-clear
@@ -1443,7 +1466,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
           </template>
           <template v-else>
             <span
-              class="inline-flex h-7 items-center gap-1.5 rounded-lg bg-[rgba(21,94,99,0.08)] px-2 font-bold text-[color:var(--app-accent)]"
+              class="inline-flex h-7 items-center gap-1.5 rounded-lg bg-[color:var(--app-accent-soft)] px-2 font-bold text-[color:var(--app-accent)]"
               data-codex-goal-status
             >
               <i class="pi pi-flag text-[0.62rem]"></i>
@@ -1454,7 +1477,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
 
         <div
           v-if="queuedFollowups.length"
-          class="vertical-scroll-fade-mask hide-scrollbar -mx-1 -mt-1 flex max-h-[30dvh] flex-col gap-px overflow-x-hidden overflow-y-auto rounded-t-xl border-b border-[rgba(34,66,72,0.1)] px-3 py-2 max-sm:px-2"
+          class="vertical-scroll-fade-mask hide-scrollbar -mx-1 -mt-1 flex max-h-[30dvh] flex-col gap-px overflow-x-hidden overflow-y-auto rounded-t-xl border-b border-[color:var(--app-border)] px-3 py-2 max-sm:px-2"
           data-codex-queued-followups
         >
           <article
@@ -1468,10 +1491,13 @@ function goalProgressText(goal: CodexThreadGoal | null) {
                 aria-hidden="true"
               >
                 <i
-                  class="pi pi-bars pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 text-[0.56rem] opacity-0 transition-opacity group-hover:opacity-100"></i>
+                  class="pi pi-bars pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 text-[0.56rem] opacity-0 transition-opacity group-hover:opacity-100"
+                ></i>
                 <i class="pi pi-clock text-[0.62rem]"></i>
               </span>
-              <span class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-4 text-[color:var(--app-text-soft)]">
+              <span
+                class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-4 text-[color:var(--app-text-soft)]"
+              >
                 {{ followupText(followup) }}
               </span>
             </div>
@@ -1480,7 +1506,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
             >
               <button
                 type="button"
-                class="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-xs font-semibold text-[color:var(--app-text)] transition hover:bg-[rgba(21,94,99,0.07)] disabled:cursor-not-allowed disabled:opacity-45"
+                class="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-xs font-semibold text-[color:var(--app-text)] transition hover:bg-[color:var(--app-hover)] disabled:cursor-not-allowed disabled:opacity-45"
                 aria-label="Steer queued follow-up"
                 title="Submit without interrupting the model"
                 :disabled="!isWorking || busy || disabled"
@@ -1492,7 +1518,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
               </button>
               <button
                 type="button"
-                class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[color:var(--app-text-soft)] transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-45"
+                class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[color:var(--app-text-soft)] transition hover:bg-[color:var(--app-danger-bg)] hover:text-[color:var(--app-danger-text)] disabled:cursor-not-allowed disabled:opacity-45"
                 aria-label="Remove queued follow-up"
                 :disabled="busy"
                 data-codex-queued-remove
@@ -1512,7 +1538,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
           <article
             v-for="(attachment, index) in skillAttachments"
             :key="`${skillAttachmentLabel(attachment)}-${index}`"
-            class="group grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_1.5rem] items-center gap-2 rounded-lg border border-[rgba(34,66,72,0.1)] bg-[rgba(255,253,247,0.82)] px-2 py-1.5 text-sm"
+            class="group grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_1.5rem] items-center gap-2 rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface-translucent)] px-2 py-1.5 text-sm"
             data-codex-skill-attachment
           >
             <i class="pi pi-sparkles text-[0.72rem] text-[color:var(--app-text-soft)]"></i>
@@ -1526,7 +1552,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
             </span>
             <button
               type="button"
-              class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[0.6rem] text-[color:var(--app-text-soft)] opacity-80 transition hover:bg-red-50 hover:text-red-700 group-hover:opacity-100"
+              class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[0.6rem] text-[color:var(--app-text-soft)] opacity-80 transition hover:bg-[color:var(--app-danger-bg)] hover:text-[color:var(--app-danger-text)] group-hover:opacity-100"
               :aria-label="`Remove ${skillAttachmentLabel(attachment)}`"
               data-codex-skill-remove
               @click="removeSkillAttachment(index)"
@@ -1544,17 +1570,21 @@ function goalProgressText(goal: CodexThreadGoal | null) {
           <article
             v-for="(attachment, index) in fileAttachments"
             :key="`${fileAttachmentPath(attachment)}-${index}`"
-            class="group grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_1.5rem] items-center gap-2 rounded-lg border border-[rgba(34,66,72,0.1)] bg-[rgba(255,253,247,0.82)] px-2 py-1.5 text-sm"
+            class="group grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_1.5rem] items-center gap-2 rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface-translucent)] px-2 py-1.5 text-sm"
             data-codex-file-attachment
           >
             <i class="pi pi-paperclip text-[0.72rem] text-[color:var(--app-text-soft)]"></i>
             <span class="min-w-0">
-              <span class="block truncate font-semibold text-[color:var(--app-text)]">{{ fileAttachmentName(attachment, index) }}</span>
-              <span class="block truncate text-[0.68rem] text-[color:var(--app-text-soft)]">{{ fileAttachmentPath(attachment) }}</span>
+              <span class="block truncate font-semibold text-[color:var(--app-text)]">{{
+                fileAttachmentName(attachment, index)
+              }}</span>
+              <span class="block truncate text-[0.68rem] text-[color:var(--app-text-soft)]">{{
+                fileAttachmentPath(attachment)
+              }}</span>
             </span>
             <button
               type="button"
-              class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[0.6rem] text-[color:var(--app-text-soft)] opacity-80 transition hover:bg-red-50 hover:text-red-700 group-hover:opacity-100"
+              class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[0.6rem] text-[color:var(--app-text-soft)] opacity-80 transition hover:bg-[color:var(--app-danger-bg)] hover:text-[color:var(--app-danger-text)] group-hover:opacity-100"
               :aria-label="`Remove ${fileAttachmentName(attachment, index)}`"
               data-codex-file-remove
               @click="removeFileAttachment(index)"
@@ -1572,7 +1602,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
           <article
             v-for="(attachment, index) in imageAttachments"
             :key="`${imageAttachmentName(attachment, index)}-${index}`"
-            class="group relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-[rgba(255,253,247,0.86)]"
+            class="group relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface-translucent)]"
             data-codex-image-attachment
           >
             <img
@@ -1583,7 +1613,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
             />
             <button
               type="button"
-              class="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-md bg-white/90 text-[0.56rem] text-[color:var(--app-text-soft)] opacity-0 shadow-sm transition hover:text-red-700 group-hover:opacity-100 group-focus-within:opacity-100"
+              class="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-md bg-[color:var(--app-surface-raised)] text-[0.56rem] text-[color:var(--app-text-soft)] opacity-0 shadow-sm transition hover:text-[color:var(--app-danger-text)] group-hover:opacity-100 group-focus-within:opacity-100"
               :aria-label="`Remove ${imageAttachmentName(attachment, index)}`"
               data-codex-image-remove
               @click="removeImageAttachment(index)"
@@ -1610,14 +1640,14 @@ function goalProgressText(goal: CodexThreadGoal | null) {
 
         <div
           v-if="statusPanelOpen"
-          class="mx-2 mb-2 grid gap-1 rounded-lg border border-[color:var(--app-border)] bg-[rgba(255,253,247,0.96)] px-3 py-2 text-xs text-[color:var(--app-text-soft)]"
+          class="mx-2 mb-2 grid gap-1 rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-panel-strong)] px-3 py-2 text-xs text-[color:var(--app-text-soft)]"
           data-codex-status-panel
         >
           <div class="flex items-center justify-between gap-2">
             <p class="m-0 text-sm font-semibold text-[color:var(--app-text)]">Thread status</p>
             <button
               type="button"
-              class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--app-text-soft)] transition hover:bg-[rgba(21,94,99,0.06)] hover:text-[color:var(--app-text)]"
+              class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[color:var(--app-text-soft)] transition hover:bg-[color:var(--app-hover)] hover:text-[color:var(--app-text)]"
               aria-label="Close status"
               data-codex-status-close
               @click="statusPanelOpen = false"
@@ -1669,7 +1699,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
               <button
                 ref="addMenuTrigger"
                 type="button"
-                class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xl font-light leading-none text-[color:var(--app-text-soft)] transition hover:bg-[rgba(21,94,99,0.06)] hover:text-[color:var(--app-text)] disabled:cursor-not-allowed disabled:opacity-45 max-sm:h-7 max-sm:w-7 max-sm:text-lg"
+                class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xl font-light leading-none text-[color:var(--app-text-soft)] transition hover:bg-[color:var(--app-hover)] hover:text-[color:var(--app-text)] disabled:cursor-not-allowed disabled:opacity-45 max-sm:h-7 max-sm:w-7 max-sm:text-lg"
                 :disabled="busy || disabled"
                 :aria-expanded="addMenuOpen"
                 aria-label="Open composer actions"
@@ -1681,14 +1711,16 @@ function goalProgressText(goal: CodexThreadGoal | null) {
               </button>
               <div
                 v-if="addMenuOpen"
-                class="fixed z-[100] grid w-80 max-w-[calc(100vw-1.5rem)] gap-1 rounded-xl border border-[color:var(--app-border)] bg-white p-1.5 text-sm shadow-xl"
+                class="fixed z-[100] grid w-80 max-w-[calc(100vw-1.5rem)] gap-1 rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-surface-raised)] p-1.5 text-sm shadow-xl"
                 :style="addMenuStyle"
                 data-codex-add-menu
               >
-                <p class="m-0 px-2 py-1 text-xs font-semibold text-[color:var(--app-text-soft)]">Add</p>
+                <p class="m-0 px-2 py-1 text-xs font-semibold text-[color:var(--app-text-soft)]">
+                  Add
+                </p>
                 <button
                   type="button"
-                  class="grid grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[color:var(--app-text)] transition hover:bg-[rgba(21,94,99,0.06)] disabled:cursor-not-allowed disabled:opacity-45"
+                  class="grid grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[color:var(--app-text)] transition hover:bg-[color:var(--app-hover)] disabled:cursor-not-allowed disabled:opacity-45"
                   :disabled="busy || disabled || isWorking"
                   data-codex-files-attach
                   @click="openFileAttachmentPicker"
@@ -1698,7 +1730,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
                 </button>
                 <button
                   type="button"
-                  class="grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-2 rounded-lg px-2 py-1.5 text-left text-[color:var(--app-text)] transition hover:bg-[rgba(21,94,99,0.06)] disabled:cursor-not-allowed disabled:opacity-45"
+                  class="grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-2 rounded-lg px-2 py-1.5 text-left text-[color:var(--app-text)] transition hover:bg-[color:var(--app-hover)] disabled:cursor-not-allowed disabled:opacity-45"
                   :disabled="busy || disabled || isWorking || hasThreadGoal"
                   data-codex-menu-goal
                   @click="startGoalMode"
@@ -1713,12 +1745,14 @@ function goalProgressText(goal: CodexThreadGoal | null) {
                 </button>
                 <button
                   type="button"
-                  class="grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-2 rounded-lg px-2 py-1.5 text-left text-[color:var(--app-text)] transition hover:bg-[rgba(21,94,99,0.06)] disabled:cursor-not-allowed disabled:opacity-45"
+                  class="grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-2 rounded-lg px-2 py-1.5 text-left text-[color:var(--app-text)] transition hover:bg-[color:var(--app-hover)] disabled:cursor-not-allowed disabled:opacity-45"
                   :disabled="busy || disabled"
                   data-codex-menu-plan
                   @click="startPlanMode"
                 >
-                  <i class="pi pi-list-check mt-1 text-[0.72rem] text-[color:var(--app-text-soft)]"></i>
+                  <i
+                    class="pi pi-list-check mt-1 text-[0.72rem] text-[color:var(--app-text-soft)]"
+                  ></i>
                   <span>
                     <span class="block">Plan mode</span>
                     <span class="block text-[0.68rem] leading-4 text-[color:var(--app-text-soft)]">
@@ -1729,14 +1763,11 @@ function goalProgressText(goal: CodexThreadGoal | null) {
               </div>
             </div>
 
-            <div
-              class="relative shrink-0"
-              data-codex-permission-pill
-            >
+            <div class="relative shrink-0" data-codex-permission-pill>
               <button
                 type="button"
                 :class="[
-                  'codex-permission-trigger inline-flex h-8 max-w-44 items-center gap-1.5 rounded-lg px-2 text-sm font-semibold transition hover:bg-[rgba(21,94,99,0.06)] disabled:cursor-not-allowed disabled:opacity-45 max-sm:h-7 max-sm:max-w-28 max-sm:gap-1 max-sm:px-1.5 max-sm:text-xs',
+                  'codex-permission-trigger inline-flex h-8 max-w-44 items-center gap-1.5 rounded-lg px-2 text-sm font-semibold transition hover:bg-[color:var(--app-hover)] disabled:cursor-not-allowed disabled:opacity-45 max-sm:h-7 max-sm:max-w-28 max-sm:gap-1 max-sm:px-1.5 max-sm:text-xs',
                   `codex-permission-tone-${selectedPermissionMode}`,
                 ]"
                 :disabled="busy || disabled"
@@ -1745,10 +1776,19 @@ function goalProgressText(goal: CodexThreadGoal | null) {
                 data-codex-permission-select
                 @click="togglePermissionMenu"
               >
-                <i :class="activePermissionOption.icon" class="text-[0.58rem] max-sm:text-[0.5rem]"></i>
-                <span class="min-w-0 truncate max-sm:hidden">{{ activePermissionOption.label }}</span>
-                <span class="hidden min-w-0 truncate max-sm:inline">{{ activePermissionOption.mobileLabel }}</span>
-                <i class="pi pi-chevron-down text-[0.4rem] text-[color:var(--app-text-soft)] max-sm:text-[0.36rem]"></i>
+                <i
+                  :class="activePermissionOption.icon"
+                  class="text-[0.58rem] max-sm:text-[0.5rem]"
+                ></i>
+                <span class="min-w-0 truncate max-sm:hidden">{{
+                  activePermissionOption.label
+                }}</span>
+                <span class="hidden min-w-0 truncate max-sm:inline">{{
+                  activePermissionOption.mobileLabel
+                }}</span>
+                <i
+                  class="pi pi-chevron-down text-[0.4rem] text-[color:var(--app-text-soft)] max-sm:text-[0.36rem]"
+                ></i>
               </button>
               <Popover
                 ref="permissionPopover"
@@ -1762,18 +1802,34 @@ function goalProgressText(goal: CodexThreadGoal | null) {
                     :key="option.value"
                     type="button"
                     class="codex-permission-choice"
-                    :class="selectedPermissionMode === option.value ? 'codex-permission-choice-active' : ''"
+                    :class="
+                      selectedPermissionMode === option.value
+                        ? 'codex-permission-choice-active'
+                        : ''
+                    "
                     data-codex-permission-option
                     @click="choosePermissionMode(option.value)"
                   >
-                    <i :class="option.icon" class="mt-1 text-[0.72rem]" :data-permission-tone="option.tone"></i>
+                    <i
+                      :class="option.icon"
+                      class="mt-1 text-[0.72rem]"
+                      :data-permission-tone="option.tone"
+                    ></i>
                     <span class="min-w-0">
-                      <span class="block truncate text-sm font-semibold text-[color:var(--app-text)]">{{ option.label }}</span>
-                      <span class="block text-[0.68rem] font-normal leading-4 text-[color:var(--app-text-soft)]">
+                      <span
+                        class="block truncate text-sm font-semibold text-[color:var(--app-text)]"
+                        >{{ option.label }}</span
+                      >
+                      <span
+                        class="block text-[0.68rem] font-normal leading-4 text-[color:var(--app-text-soft)]"
+                      >
                         {{ option.description }}
                       </span>
                     </span>
-                    <i v-if="selectedPermissionMode === option.value" class="pi pi-check text-[0.68rem] text-[color:var(--app-text-soft)]"></i>
+                    <i
+                      v-if="selectedPermissionMode === option.value"
+                      class="pi pi-check text-[0.68rem] text-[color:var(--app-text-soft)]"
+                    ></i>
                   </button>
                 </div>
               </Popover>
@@ -1782,7 +1838,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
             <input
               v-if="isGoalComposeMode && !hasThreadGoal"
               v-model="goalTokenBudgetDraft"
-              class="h-8 w-20 shrink-0 rounded-lg bg-[rgba(34,66,72,0.06)] px-2 text-sm text-[color:var(--app-text)] outline-none placeholder:text-[color:var(--app-text-soft)]"
+              class="h-8 w-20 shrink-0 rounded-lg bg-[color:var(--app-surface-muted)] px-2 text-sm text-[color:var(--app-text)] outline-none placeholder:text-[color:var(--app-text-soft)]"
               :disabled="busy || disabled"
               inputmode="numeric"
               placeholder="Tokens"
@@ -1790,12 +1846,11 @@ function goalProgressText(goal: CodexThreadGoal | null) {
               data-codex-goal-token-budget
               @keydown.enter.prevent="submitGoal"
             />
-
           </div>
 
           <div class="flex shrink-0 items-center justify-end gap-1 max-sm:gap-0.5">
             <div
-              class="group/context relative inline-flex h-8 w-8 max-w-full shrink-0 items-center justify-center rounded-lg px-2 text-xs text-[color:var(--app-text-soft)] outline-none transition hover:bg-[rgba(21,94,99,0.06)] focus-visible:bg-[rgba(21,94,99,0.06)] focus-visible:ring-2 focus-visible:ring-[rgba(21,94,99,0.18)] max-sm:h-7 max-sm:w-7 max-sm:px-1"
+              class="group/context relative inline-flex h-8 w-8 max-w-full shrink-0 items-center justify-center rounded-lg px-2 text-xs text-[color:var(--app-text-soft)] outline-none transition hover:bg-[color:var(--app-hover)] focus-visible:bg-[color:var(--app-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus)] max-sm:h-7 max-sm:w-7 max-sm:px-1"
               :aria-label="contextHoverTitle"
               tabindex="0"
               data-codex-context-window
@@ -1806,10 +1861,12 @@ function goalProgressText(goal: CodexThreadGoal | null) {
                 aria-hidden="true"
                 data-codex-context-ring
               >
-                <span class="absolute inset-[3px] rounded-full bg-white"></span>
+                <span
+                  class="absolute inset-[3px] rounded-full bg-[color:var(--app-surface-raised)]"
+                ></span>
               </span>
               <span
-                class="pointer-events-none absolute bottom-full right-0 z-50 mb-2 w-max max-w-[16rem] rounded-lg border border-[color:var(--app-border)] bg-white px-2.5 py-1.5 text-xs font-semibold text-[color:var(--app-text)] opacity-0 shadow-xl transition-opacity group-hover/context:opacity-100 group-focus-within/context:opacity-100"
+                class="pointer-events-none absolute bottom-full right-0 z-50 mb-2 w-max max-w-[16rem] rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface-raised)] px-2.5 py-1.5 text-xs font-semibold text-[color:var(--app-text)] opacity-0 shadow-xl transition-opacity group-hover/context:opacity-100 group-focus-within/context:opacity-100"
                 data-codex-context-tooltip
               >
                 {{ contextHoverTitle }}
@@ -1818,7 +1875,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
             <div class="relative min-w-0 shrink-0">
               <button
                 type="button"
-                class="codex-intelligence-trigger inline-flex h-8 max-w-44 items-center gap-1.5 rounded-lg px-2 text-sm font-semibold text-[color:var(--app-text)] transition hover:bg-[rgba(21,94,99,0.06)] disabled:cursor-not-allowed disabled:opacity-45 max-sm:h-7 max-sm:max-w-28 max-sm:gap-1 max-sm:px-1.5 max-sm:text-xs"
+                class="codex-intelligence-trigger inline-flex h-8 max-w-44 items-center gap-1.5 rounded-lg px-2 text-sm font-semibold text-[color:var(--app-text)] transition hover:bg-[color:var(--app-hover)] disabled:cursor-not-allowed disabled:opacity-45 max-sm:h-7 max-sm:max-w-28 max-sm:gap-1 max-sm:px-1.5 max-sm:text-xs"
                 :disabled="busy || disabled"
                 aria-label="Select model and reasoning effort"
                 :title="`${activeModel} · ${activeReasoningEffort}`"
@@ -1826,7 +1883,9 @@ function goalProgressText(goal: CodexThreadGoal | null) {
                 @click="toggleIntelligenceMenu"
               >
                 <span class="min-w-0 truncate">{{ intelligenceTriggerLabel }}</span>
-                <i class="pi pi-chevron-down text-[0.48rem] text-[color:var(--app-text-soft)] max-sm:text-[0.42rem]"></i>
+                <i
+                  class="pi pi-chevron-down text-[0.48rem] text-[color:var(--app-text-soft)] max-sm:text-[0.42rem]"
+                ></i>
               </button>
               <Popover
                 ref="intelligencePopover"
@@ -1834,7 +1893,11 @@ function goalProgressText(goal: CodexThreadGoal | null) {
                 class="codex-intelligence-popover"
                 data-codex-intelligence-popover
               >
-                <div class="grid gap-3" aria-label="Model and reasoning settings" data-codex-intelligence-menu>
+                <div
+                  class="grid gap-3"
+                  aria-label="Model and reasoning settings"
+                  data-codex-intelligence-menu
+                >
                   <section class="grid gap-1.5" data-codex-reasoning-section>
                     <p class="codex-intelligence-section-title">Reasoning</p>
                     <div class="grid gap-1">
@@ -1843,7 +1906,11 @@ function goalProgressText(goal: CodexThreadGoal | null) {
                         :key="option.value"
                         type="button"
                         class="codex-intelligence-choice"
-                        :class="activeReasoningEffort === option.value ? 'codex-intelligence-choice-active' : ''"
+                        :class="
+                          activeReasoningEffort === option.value
+                            ? 'codex-intelligence-choice-active'
+                            : ''
+                        "
                         data-codex-reasoning-option
                         @click="chooseReasoningEffort(option.value)"
                       >
@@ -1861,7 +1928,9 @@ function goalProgressText(goal: CodexThreadGoal | null) {
                         :key="option.value"
                         type="button"
                         class="codex-intelligence-choice"
-                        :class="activeModel === option.value ? 'codex-intelligence-choice-active' : ''"
+                        :class="
+                          activeModel === option.value ? 'codex-intelligence-choice-active' : ''
+                        "
                         data-codex-model-option
                         @click="chooseModel(option.value)"
                       >
@@ -1876,25 +1945,22 @@ function goalProgressText(goal: CodexThreadGoal | null) {
             <button
               type="button"
               class="inline-flex h-10 min-w-10 items-center justify-center rounded-full px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 max-sm:h-9 max-sm:min-w-9 max-sm:px-2.5"
-              :class="primaryAction === 'stop'
-                ? 'border border-red-200 bg-white text-red-700 hover:bg-red-50'
-                : 'bg-[color:var(--app-accent)] text-white hover:brightness-95'
-                "
+              :class="
+                primaryAction === 'stop'
+                  ? 'border border-[color:var(--app-danger-border)] bg-[color:var(--app-surface-raised)] text-[color:var(--app-danger-text)] hover:bg-[color:var(--app-danger-bg)]'
+                  : 'bg-[color:var(--app-accent)] text-white hover:brightness-95'
+              "
               :disabled="primaryDisabled"
               :aria-label="primaryLabel"
               :title="primaryTitle"
               data-codex-primary-submit
               @click="submitPrimary"
             >
-              <i
-                :class="primaryIcon"
-                class="text-xs"
-              ></i>
+              <i :class="primaryIcon" class="text-xs"></i>
               <span class="sr-only">{{ primaryLabel }}</span>
             </button>
           </div>
         </div>
-
       </div>
     </div>
     <CodexHostPathPicker

@@ -235,7 +235,7 @@ function isImageExtension(extension: string) {
     <div class="flex h-full min-h-0 flex-col gap-3">
       <div class="grid gap-2">
         <div
-          class="flex min-w-0 items-center gap-2 rounded-lg border border-[color:var(--app-border)] bg-[rgba(255,253,247,0.8)] px-3 py-2 text-sm text-[color:var(--app-text)]"
+          class="flex min-w-0 items-center gap-2 rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface-translucent)] px-3 py-2 text-sm text-[color:var(--app-text)]"
         >
           <i class="pi pi-folder-open shrink-0 text-[color:var(--app-text-soft)]"></i>
           <span class="truncate" data-codex-host-path-current>{{ currentLabel }}</span>
@@ -244,7 +244,7 @@ function isImageExtension(extension: string) {
         <Breadcrumb
           :home="breadcrumbHome"
           :model="breadcrumbItems"
-          class="min-w-0 overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-white text-sm"
+          class="min-w-0 overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface-raised)] text-sm"
           data-codex-host-path-breadcrumb
         >
           <template #item="{ item }">
@@ -266,7 +266,7 @@ function isImageExtension(extension: string) {
 
       <div
         v-if="loading"
-        class="grid min-h-52 place-items-center rounded-lg border border-[color:var(--app-border)] bg-white"
+        class="grid min-h-52 place-items-center rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface-raised)]"
         data-codex-host-path-loading
       >
         <ProgressSpinner style="width: 2rem; height: 2rem" stroke-width="4" />
@@ -274,13 +274,13 @@ function isImageExtension(extension: string) {
 
       <ScrollPanel
         v-else
-        class="min-h-0 flex-1 rounded-lg border border-[color:var(--app-border)] bg-white"
+        class="min-h-0 flex-1 rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface-raised)]"
       >
         <div class="grid gap-1 p-2" data-codex-host-path-entries>
           <button
             v-if="parentPath"
             type="button"
-            class="grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-[color:var(--app-text)] transition hover:bg-[rgba(21,94,99,0.08)]"
+            class="grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-[color:var(--app-text)] transition hover:bg-[color:var(--app-selected)]"
             data-codex-host-path-parent
             @click="loadDirectory(parentPath)"
           >
@@ -295,7 +295,7 @@ function isImageExtension(extension: string) {
               class="grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition"
               :class="
                 entry.readable
-                  ? 'text-[color:var(--app-text)] hover:bg-[rgba(21,94,99,0.08)]'
+                  ? 'text-[color:var(--app-text)] hover:bg-[color:var(--app-selected)]'
                   : 'cursor-not-allowed text-[color:var(--app-text-soft)] opacity-60'
               "
               :disabled="!entry.readable"
@@ -312,7 +312,7 @@ function isImageExtension(extension: string) {
               class="grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition"
               :class="
                 allowFiles && entry.readable
-                  ? 'cursor-pointer text-[color:var(--app-text)] hover:bg-[rgba(21,94,99,0.08)]'
+                  ? 'cursor-pointer text-[color:var(--app-text)] hover:bg-[color:var(--app-selected)]'
                   : 'text-[color:var(--app-text-soft)]'
               "
               data-codex-host-path-file

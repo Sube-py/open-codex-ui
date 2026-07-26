@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import type {
-  CodexRemoteConnectionRuntimeStatus,
-  CodexWorkspaceResponse,
-} from '../types'
+import type { CodexRemoteConnectionRuntimeStatus, CodexWorkspaceResponse } from '../types'
 
 const props = defineProps<{
   expanded: boolean
@@ -27,9 +24,8 @@ const hostLabel = computed(
     connectionId.value ||
     'Remote',
 )
-const runtimeStatus = computed<CodexRemoteConnectionRuntimeStatus>(() =>
-  props.workspace.remote_connection_statuses?.[connectionId.value]?.status ??
-  'disconnected',
+const runtimeStatus = computed<CodexRemoteConnectionRuntimeStatus>(
+  () => props.workspace.remote_connection_statuses?.[connectionId.value]?.status ?? 'disconnected',
 )
 const runtimeDetail = computed(
   () => props.workspace.remote_connection_statuses?.[connectionId.value]?.detail?.trim() ?? '',
@@ -65,11 +61,7 @@ const statusTitle = computed(() =>
       data-codex-project-source-icon
       :data-source="isRemote ? 'remote' : 'local'"
     >
-      <i
-        v-if="!isRemote"
-        class="pi text-sm"
-        :class="expanded ? 'pi-folder-open' : 'pi-folder'"
-      ></i>
+      <i v-if="!isRemote" class="pi text-sm" :class="expanded ? 'pi-folder-open' : 'pi-folder'"></i>
       <svg
         v-else
         aria-hidden="true"
@@ -100,11 +92,7 @@ const statusTitle = computed(() =>
       class="inline-flex min-w-0 shrink-0 items-center gap-1.5 text-[0.68rem] font-medium text-[color:var(--app-text-soft)] group-hover/project:hidden group-focus-within/project:hidden"
       data-codex-project-remote-meta
     >
-      <span
-        class="max-w-20 truncate"
-        data-codex-project-alias
-        :title="hostLabel"
-      >
+      <span class="max-w-20 truncate" data-codex-project-alias :title="hostLabel">
         {{ hostLabel }}
       </span>
       <span
@@ -115,13 +103,10 @@ const statusTitle = computed(() =>
         :title="statusTitle"
         role="img"
       >
-        <i
-          v-if="runtimeStatus === 'connecting'"
-          class="pi pi-spinner pi-spin text-[0.58rem]"
-        ></i>
+        <i v-if="runtimeStatus === 'connecting'" class="pi pi-spinner pi-spin text-[0.58rem]"></i>
         <i
           v-else-if="runtimeStatus === 'error'"
-          class="pi pi-exclamation-circle text-[0.62rem] text-red-600"
+          class="pi pi-exclamation-circle text-[0.62rem] text-[color:var(--app-danger-text)]"
         ></i>
         <span
           v-else
