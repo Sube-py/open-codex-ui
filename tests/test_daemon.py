@@ -357,6 +357,51 @@ def test_launchd_service_writes_launch_agent_and_reports_pid(tmp_path: Path) -> 
     assert service.status() == ServiceStatus(installed=True, running=True, pid=4242)
 
 
+def test_launchd_start_bootstraps_after_bootout_race(tmp_path: Path) -> None:
+    calls: list[tuple[list[str], bool, bool]] = []
+    loaded_results = iter(
+        [
+            completed([], stdout="state = waiting\n"),
+            completed([], returncode=1),
+        ]
+    )
+
+    def runner(
+        command: list[str],
+        *,
+        check: bool = True,
+        capture_output: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((command, check, capture_output))
+        if command[:2] == ["launchctl", "print"]:
+            return next(loaded_results)
+        if command[:2] == ["launchctl", "kickstart"]:
+            return completed(command, returncode=37)
+        return completed(command)
+
+    service = LaunchdService(
+        home_dir=tmp_path,
+        runtime_dir=tmp_path / "runtime",
+        uid=501,
+        runner=runner,
+    )
+    service.plist_path.parent.mkdir(parents=True)
+    service.plist_path.touch()
+
+    service.start()
+
+    assert calls == [
+        (["launchctl", "print", service.target], False, True),
+        (["launchctl", "kickstart", "-k", service.target], False, True),
+        (["launchctl", "print", service.target], False, True),
+        (
+            ["launchctl", "bootstrap", service.domain, str(service.plist_path)],
+            True,
+            False,
+        ),
+    ]
+
+
 def test_systemd_service_writes_and_enables_user_unit(tmp_path: Path) -> None:
     runner = RecordingRunner()
     service = SystemdUserService(

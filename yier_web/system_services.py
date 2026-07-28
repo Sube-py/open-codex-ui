@@ -142,9 +142,21 @@ class LaunchdService(SystemService):
         if not self.plist_path.exists():
             raise ServiceError(f"Launch agent is not installed at {self.plist_path}.")
         if self._is_loaded():
-            self.runner(["launchctl", "kickstart", "-k", self.target])
-        else:
-            self.runner(["launchctl", "bootstrap", self.domain, str(self.plist_path)])
+            command = ["launchctl", "kickstart", "-k", self.target]
+            result = self.runner(
+                command,
+                check=False,
+                capture_output=True,
+            )
+            if result.returncode == 0:
+                return
+            if self._is_loaded():
+                detail = (result.stderr or result.stdout or "").strip()
+                suffix = f": {detail}" if detail else ""
+                raise ServiceError(
+                    f"Command failed ({result.returncode}): {' '.join(command)}{suffix}"
+                )
+        self.runner(["launchctl", "bootstrap", self.domain, str(self.plist_path)])
 
     def stop(self) -> None:
         if self._is_loaded():

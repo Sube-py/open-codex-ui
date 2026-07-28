@@ -612,20 +612,20 @@ wheels = [
 
 [[package]]
 name = "open-codex-bridge"
-version = "0.1.9"
+version = "0.1.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "openai-codex" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0f/52/797e92d0ff43b4d9a56fc9465745353486a7fd20eda24d0dd26891cbf89e/open_codex_bridge-0.1.9.tar.gz", hash = "sha256:1d330c537133ac47b14f78e3c82d4b230fbb0129e04a7c81447503393359c674", size = 177751, upload-time = "2026-07-26T03:24:29.012Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1b/5c/102e93e32db3e4e675963bb19d451cfd562cee9076c77970673659dc8604/open_codex_bridge-0.1.11.tar.gz", hash = "sha256:d69c9fce8029f88cc024cee385aaa3602523172ccd8ffb68778617afbbd89a2a", size = 179219, upload-time = "2026-07-28T04:21:04.25Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6f/43/a5499ff1fa1e994c843e0c1e40ee0953e8f8a587e29b4c732c5516117429/open_codex_bridge-0.1.9-py3-none-any.whl", hash = "sha256:9c7263624f4416ed181794b9cece2d38586987d55e55061bc8c66f544c2d537b", size = 60457, upload-time = "2026-07-26T03:24:27.602Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/5d/5f5b479af46de22877b92b9c15e5a8599b1cc2049de7572c83c932540847/open_codex_bridge-0.1.11-py3-none-any.whl", hash = "sha256:8bde96155efff211bc0bb9ebf1cf40feed890b090a1d873bea90aea25c9a9aff", size = 61096, upload-time = "2026-07-28T04:21:02.925Z" },
 ]
 
 [[package]]
 name = "open-codex-ui"
-version = "0.1.9"
+version = "0.1.10"
 source = { editable = "." }
 dependencies = [
     { name = "granian", extra = ["reload"] },
@@ -648,7 +648,7 @@ requires-dist = [
     { name = "granian", extras = ["reload"], specifier = ">=2.7.2" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "litestar", specifier = ">=2.21.1" },
-    { name = "open-codex-bridge", specifier = ">=0.1.9" },
+    { name = "open-codex-bridge", specifier = ">=0.1.11" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "yier-agents", specifier = ">=0.1.3" },
