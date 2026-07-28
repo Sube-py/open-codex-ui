@@ -10,6 +10,7 @@ JsonDict = dict[str, Any]
 CodexSessionEvent = JsonDict
 CodexSessionEventQueue = asyncio.Queue[CodexSessionEvent]
 CodexSessionEventSink = Callable[[CodexSessionEvent], Awaitable[None] | None]
+CodexSessionEventProjector = Callable[[CodexSessionEvent], CodexSessionEvent | None]
 Unsubscribe = Callable[[], None]
 
 logger = logging.getLogger(__name__)
@@ -19,17 +20,22 @@ class CodexSessionEventHub:
     """Fan out Codex session events to thread subscribers and channel sinks."""
 
     def __init__(self) -> None:
-        self._thread_subscribers: dict[str, set[CodexSessionEventQueue]] = {}
+        self._thread_subscribers: dict[
+            str,
+            dict[CodexSessionEventQueue, CodexSessionEventProjector | None],
+        ] = {}
         self._sinks: set[CodexSessionEventSink] = set()
 
     def subscribe_thread(
         self,
         thread_id: str,
         queue: CodexSessionEventQueue,
+        *,
+        projector: CodexSessionEventProjector | None = None,
     ) -> bool:
-        subscribers = self._thread_subscribers.setdefault(thread_id, set())
+        subscribers = self._thread_subscribers.setdefault(thread_id, {})
         was_empty = not subscribers
-        subscribers.add(queue)
+        subscribers[queue] = projector
         return was_empty
 
     def unsubscribe_thread(
@@ -40,11 +46,21 @@ class CodexSessionEventHub:
         subscribers = self._thread_subscribers.get(thread_id)
         if subscribers is None or queue not in subscribers:
             return False
-        subscribers.discard(queue)
+        subscribers.pop(queue, None)
         if not subscribers:
             self._thread_subscribers.pop(thread_id, None)
             return True
         return False
+
+    def set_thread_projector(
+        self,
+        thread_id: str,
+        queue: CodexSessionEventQueue,
+        projector: CodexSessionEventProjector | None,
+    ) -> None:
+        subscribers = self._thread_subscribers.get(thread_id)
+        if subscribers is not None and queue in subscribers:
+            subscribers[queue] = projector
 
     def clear_thread(self, thread_id: str) -> None:
         self._thread_subscribers.pop(thread_id, None)
@@ -69,8 +85,7 @@ class CodexSessionEventHub:
         thread_id: str,
         event: CodexSessionEvent,
     ) -> None:
-        for queue in list(self._thread_subscribers.get(thread_id, set())):
-            queue.put_nowait(event)
+        self._publish_to_subscribers(thread_id, event)
         for sink in list(self._sinks):
             await self._publish_to_sink(sink, event)
 
@@ -79,23 +94,31 @@ class CodexSessionEventHub:
         thread_id: str,
         event: CodexSessionEvent,
     ) -> None:
-        for queue in list(self._thread_subscribers.get(thread_id, set())):
-            queue.put_nowait(event)
+        self._publish_to_subscribers(thread_id, event)
 
     async def publish_to_all_thread_subscribers(
         self,
         event: CodexSessionEvent,
     ) -> None:
-        for subscribers in list(self._thread_subscribers.values()):
-            for queue in list(subscribers):
-                queue.put_nowait(event)
+        for thread_id in list(self._thread_subscribers):
+            self._publish_to_subscribers(thread_id, event)
 
     async def publish_global_event(self, event: CodexSessionEvent) -> None:
-        for subscribers in list(self._thread_subscribers.values()):
-            for queue in list(subscribers):
-                queue.put_nowait(event)
+        for thread_id in list(self._thread_subscribers):
+            self._publish_to_subscribers(thread_id, event)
         for sink in list(self._sinks):
             await self._publish_to_sink(sink, event)
+
+    def _publish_to_subscribers(
+        self,
+        thread_id: str,
+        event: CodexSessionEvent,
+    ) -> None:
+        subscribers = self._thread_subscribers.get(thread_id, {})
+        for queue, projector in list(subscribers.items()):
+            projected = projector(event) if projector is not None else event
+            if projected is not None:
+                queue.put_nowait(projected)
 
     async def _publish_to_sink(
         self,

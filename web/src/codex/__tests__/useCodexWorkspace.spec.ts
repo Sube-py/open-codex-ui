@@ -3,12 +3,19 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiGet } from '../../lib/api'
+import { mergeTurnDelta, type CodexTurnCache } from '../lib/codexTurnCache'
 import {
   useCodexWorkspace,
   type CodexRealtimeClient,
   type UseCodexWorkspaceOptions,
 } from '../composables/useCodexWorkspace'
-import type { CodexClientCommand, CodexServerEvent, CodexSocketStatus, JsonRecord } from '../types'
+import type {
+  CodexClientCommand,
+  CodexServerEvent,
+  CodexSocketStatus,
+  CodexTurnState,
+  JsonRecord,
+} from '../types'
 
 vi.mock('../../lib/api', () => ({
   apiGet: vi.fn(),
@@ -45,6 +52,7 @@ class FakeCodexSocket implements CodexRealtimeClient {
   returnDirectGoalResponse = false
   readonly deferredSubscribeThreadIds = new Set<string>()
   readonly subscribeResolvers = new Map<string, (value: unknown) => void>()
+  readonly threadDeltaResponses = new Map<string, unknown>()
 
   async connect() {
     this.statusListeners.forEach((listener) => listener('open'))
@@ -124,11 +132,13 @@ class FakeCodexSocket implements CodexRealtimeClient {
         paired_editors: [],
       } as TPayload
     }
-    if (type === 'subscribe_thread') {
+    if (type === 'subscribe_thread_delta') {
       const threadId = String(payload.thread_id)
-      const response = {
+      const response = this.threadDeltaResponses.get(threadId) ?? {
         thread_id: threadId,
-        state: { id: threadId, turns: [], requests: [] },
+        state: { id: threadId, requests: [] },
+        turn_ids: [],
+        turns: [],
         stream_role: null,
         queued_followups: [],
       }
@@ -205,10 +215,39 @@ class FakeCodexSocket implements CodexRealtimeClient {
     this.deferredSubscribeThreadIds.delete(threadId)
     resolve({
       thread_id: threadId,
-      state: { id: threadId, turns: [], requests: [] },
+      state: { id: threadId, requests: [] },
+      turn_ids: [],
+      turns: [],
       stream_role: null,
       queued_followups: [],
     })
+  }
+}
+
+class FakeTurnCache implements CodexTurnCache {
+  readonly snapshots = new Map<string, CodexTurnState[]>()
+  readonly updates: Array<{
+    threadId: string
+    turnIds: string[]
+    changedTurns: CodexTurnState[]
+  }> = []
+  readonly removedThreadIds: string[] = []
+
+  async load(threadId: string) {
+    return { turns: this.snapshots.get(threadId) ?? [] }
+  }
+
+  async update(threadId: string, turnIds: string[], changedTurns: CodexTurnState[]) {
+    this.updates.push({ threadId, turnIds, changedTurns })
+    this.snapshots.set(
+      threadId,
+      mergeTurnDelta(this.snapshots.get(threadId) ?? [], turnIds, changedTurns),
+    )
+  }
+
+  async remove(threadId: string) {
+    this.removedThreadIds.push(threadId)
+    this.snapshots.delete(threadId)
   }
 }
 
@@ -216,11 +255,12 @@ function mountHarness(
   socket: FakeCodexSocket,
   options: Omit<UseCodexWorkspaceOptions, 'socket'> = {},
 ) {
+  const turnCache = options.turnCache ?? new FakeTurnCache()
   const holder: { workspace?: ReturnType<typeof useCodexWorkspace> } = {}
   const wrapper = mount(
     defineComponent({
       setup() {
-        holder.workspace = useCodexWorkspace({ socket, ...options })
+        holder.workspace = useCodexWorkspace({ socket, turnCache, ...options })
         return () => h('div')
       },
     }),
@@ -228,7 +268,7 @@ function mountHarness(
   if (!holder.workspace) {
     throw new Error('Expected Codex workspace harness to initialize.')
   }
-  return { wrapper, workspace: holder.workspace }
+  return { wrapper, workspace: holder.workspace, turnCache }
 }
 
 describe('useCodexWorkspace', () => {
@@ -271,13 +311,13 @@ describe('useCodexWorkspace', () => {
 
   it('subscribes to one visible thread while leaving server sessions alive', async () => {
     const socket = new FakeCodexSocket()
-    const { wrapper, workspace } = mountHarness(socket)
+    const { workspace } = mountHarness(socket)
     await flushPromises()
 
     expect(workspace.activeThreadId.value).toBe('thread-a')
     expect(socket.commands.map((command) => command.type)).toEqual([
       'list_threads',
-      'subscribe_thread',
+      'subscribe_thread_delta',
       'get_thread_goal',
     ])
 
@@ -286,7 +326,10 @@ describe('useCodexWorkspace', () => {
 
     expect(socket.commands.slice(-3)).toEqual([
       { type: 'unsubscribe_thread', payload: { thread_id: 'thread-a' } },
-      { type: 'subscribe_thread', payload: { thread_id: 'thread-b' } },
+      {
+        type: 'subscribe_thread_delta',
+        payload: { thread_id: 'thread-b', cached_turn_ids: [] },
+      },
       { type: 'get_thread_goal', payload: { thread_id: 'thread-b' } },
     ])
     expect(socket.closed).toBe(false)
@@ -314,6 +357,95 @@ describe('useCodexWorkspace', () => {
     ).toBe('inProgress')
   })
 
+  it('hydrates cached turns and applies authoritative realtime deltas', async () => {
+    const socket = new FakeCodexSocket()
+    const turnCache = new FakeTurnCache()
+    turnCache.snapshots.set('thread-a', [
+      {
+        turnId: 'turn-0',
+        status: 'completed',
+        items: [{ type: 'agentMessage', text: 'cached' }],
+      },
+      {
+        turnId: 'turn-1',
+        status: 'inProgress',
+        items: [{ type: 'agentMessage', text: 'stale' }],
+      },
+    ])
+    socket.threadDeltaResponses.set('thread-a', {
+      thread_id: 'thread-a',
+      state: { id: 'thread-a', title: 'Initial title', requests: [] },
+      turn_ids: ['turn-0', 'turn-1', 'turn-2'],
+      turns: [
+        {
+          turnId: 'turn-1',
+          status: 'completed',
+          items: [{ type: 'agentMessage', text: 'finished' }],
+        },
+        {
+          turnId: 'turn-2',
+          status: 'inProgress',
+          items: [{ type: 'agentMessage', text: 'streaming' }],
+        },
+      ],
+      queued_followups: [],
+    })
+
+    const { workspace } = mountHarness(socket, { turnCache })
+    await flushPromises()
+
+    expect(socket.commands).toContainEqual({
+      type: 'subscribe_thread_delta',
+      payload: {
+        thread_id: 'thread-a',
+        cached_turn_ids: ['turn-0', 'turn-1'],
+        refresh_turn_ids: ['turn-1'],
+      },
+    })
+    expect(workspace.activeThreadState.value?.turns?.map((turn) => turn.turnId)).toEqual([
+      'turn-0',
+      'turn-1',
+      'turn-2',
+    ])
+    expect(workspace.activeThreadState.value?.turns?.[0]?.items).toEqual([
+      { type: 'agentMessage', text: 'cached' },
+    ])
+    expect(workspace.activeThreadState.value?.turns?.[1]?.items).toEqual([
+      { type: 'agentMessage', text: 'finished' },
+    ])
+
+    socket.emit({
+      type: 'thread_state',
+      payload: {
+        thread_id: 'thread-a',
+        state: {
+          id: 'thread-a',
+          title: 'Live title',
+          requests: [],
+          turns: [
+            {
+              turnId: 'turn-2',
+              status: 'completed',
+              items: [{ type: 'agentMessage', text: 'done' }],
+            },
+          ],
+        },
+        queued_followups: [],
+      },
+    })
+    await nextTick()
+
+    expect(workspace.activeThreadState.value?.title).toBe('Live title')
+    expect(workspace.activeThreadState.value?.turns).toEqual([
+      {
+        turnId: 'turn-2',
+        status: 'completed',
+        items: [{ type: 'agentMessage', text: 'done' }],
+      },
+    ])
+    expect(turnCache.snapshots.get('thread-a')).toEqual(workspace.activeThreadState.value?.turns)
+  })
+
   it('routes remote thread selection and creation through its host', async () => {
     const socket = new FakeCodexSocket()
     socket.includeRemoteThread = true
@@ -324,8 +456,12 @@ describe('useCodexWorkspace', () => {
     expect(socket.commands.slice(0, 2)).toEqual([
       { type: 'list_threads', payload: {} },
       {
-        type: 'subscribe_thread',
-        payload: { thread_id: 'thread-remote', host_id: 'ssh:remote-1' },
+        type: 'subscribe_thread_delta',
+        payload: {
+          thread_id: 'thread-remote',
+          cached_turn_ids: [],
+          host_id: 'ssh:remote-1',
+        },
       },
     ])
 
@@ -337,8 +473,12 @@ describe('useCodexWorkspace', () => {
       payload: { project_path: '/srv/app', host_id: 'ssh:remote-1' },
     })
     expect(socket.commands).toContainEqual({
-      type: 'subscribe_thread',
-      payload: { thread_id: 'thread-created', host_id: 'ssh:remote-1' },
+      type: 'subscribe_thread_delta',
+      payload: {
+        thread_id: 'thread-created',
+        cached_turn_ids: [],
+        host_id: 'ssh:remote-1',
+      },
     })
   })
 
@@ -692,7 +832,10 @@ describe('useCodexWorkspace', () => {
       { type: 'fork_thread', payload: { thread_id: 'thread-a' } },
       { type: 'list_threads', payload: {} },
       { type: 'unsubscribe_thread', payload: { thread_id: 'thread-a' } },
-      { type: 'subscribe_thread', payload: { thread_id: 'thread-forked' } },
+      {
+        type: 'subscribe_thread_delta',
+        payload: { thread_id: 'thread-forked', cached_turn_ids: [] },
+      },
       { type: 'get_thread_goal', payload: { thread_id: 'thread-forked' } },
     ])
     expect(workspace.activeThreadId.value).toBe('thread-forked')
@@ -717,7 +860,10 @@ describe('useCodexWorkspace', () => {
     expect(socket.commands.slice(-4)).toEqual([
       { type: 'start_thread', payload: { project_path: '/tmp/embed' } },
       { type: 'list_threads', payload: {} },
-      { type: 'subscribe_thread', payload: { thread_id: 'thread-created' } },
+      {
+        type: 'subscribe_thread_delta',
+        payload: { thread_id: 'thread-created', cached_turn_ids: [] },
+      },
       { type: 'get_thread_goal', payload: { thread_id: 'thread-created' } },
     ])
     expect(workspace.activeThreadId.value).toBe('thread-created')
@@ -736,7 +882,10 @@ describe('useCodexWorkspace', () => {
     await flushPromises()
 
     expect(socket.commands.slice(-2)).toEqual([
-      { type: 'subscribe_thread', payload: { thread_id: 'thread-b' } },
+      {
+        type: 'subscribe_thread_delta',
+        payload: { thread_id: 'thread-b', cached_turn_ids: [] },
+      },
       { type: 'get_thread_goal', payload: { thread_id: 'thread-b' } },
     ])
     expect(workspace.activeThreadId.value).toBe('thread-b')

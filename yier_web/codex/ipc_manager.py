@@ -40,9 +40,11 @@ from yier_web.codex.session_events import (
     CodexSessionEvent,
     CodexSessionEventHub,
     CodexSessionEventQueue,
+    CodexSessionEventProjector,
     CodexSessionEventSink,
     Unsubscribe,
 )
+from yier_web.codex.turn_sync import InitialTurnEventProjector
 from yier_web.event_stream import EventStreamBroker
 from yier_web.schemas import (
     CodexFilesystemEntry,
@@ -635,8 +637,13 @@ print(json.dumps({
         queue: CodexSubscriberQueue,
         *,
         host_id: str | None = None,
+        projector: CodexSessionEventProjector | None = None,
     ) -> JsonDict | None:
-        first_subscription = self._session_events.subscribe_thread(thread_id, queue)
+        first_subscription = self._session_events.subscribe_thread(
+            thread_id,
+            queue,
+            projector=projector,
+        )
         try:
             managed = await self._ensure_thread(
                 thread_id,
@@ -668,6 +675,36 @@ print(json.dumps({
             ),
         )
         return state
+
+    async def subscribe_with_initial_turn_delta(
+        self,
+        thread_id: str,
+        queue: CodexSubscriberQueue,
+        *,
+        cached_turn_ids: list[str],
+        refresh_turn_ids: list[str],
+        host_id: str | None = None,
+    ) -> JsonDict:
+        projector = InitialTurnEventProjector(
+            cached_turn_ids,
+            refresh_turn_ids,
+        )
+        try:
+            state = await self.subscribe(
+                thread_id,
+                queue,
+                host_id=host_id,
+                projector=projector,
+            )
+            managed = self._threads[thread_id]
+            return projector.thread_payload(
+                thread_id=thread_id,
+                state=state,
+                stream_role=managed.session.stream_role,
+                queued_followups=managed.session.queued_followups,
+            )
+        finally:
+            self._session_events.set_thread_projector(thread_id, queue, None)
 
     async def unsubscribe(
         self,

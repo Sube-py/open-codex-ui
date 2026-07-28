@@ -259,6 +259,15 @@ export interface CodexThreadStatePayload {
   queued_followups?: CodexQueuedFollowup[]
 }
 
+export interface CodexThreadStateDeltaPayload {
+  thread_id: string
+  state: CodexConversationState | null
+  turn_ids: string[]
+  turns: CodexTurnState[]
+  stream_role?: JsonRecord | null
+  queued_followups?: CodexQueuedFollowup[]
+}
+
 export interface CodexThreadCreateResponse {
   thread_id: string
   host_id?: string
@@ -286,6 +295,7 @@ export interface CodexSkillSummary {
 export type CodexClientCommand =
   | 'list_threads'
   | 'subscribe_thread'
+  | 'subscribe_thread_delta'
   | 'unsubscribe_thread'
   | 'start_thread'
   | 'send_prompt'
@@ -312,6 +322,7 @@ export type CodexServerEventType =
   | 'codex_session_event'
   | 'thread_snapshot'
   | 'thread_state'
+  | 'thread_state_delta'
   | 'thread_archived'
   | 'thread_unarchived'
 

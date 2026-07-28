@@ -37,6 +37,17 @@ def _payload_int(payload: dict[str, Any], key: str) -> int | None:
     return value if isinstance(value, int) else None
 
 
+def _payload_text_list(payload: dict[str, Any], key: str) -> list[str]:
+    value = payload.get(key)
+    if not isinstance(value, list):
+        return []
+    return [
+        normalized
+        for item in value
+        if isinstance(item, str) and (normalized := item.strip())
+    ]
+
+
 @dataclass(slots=True)
 class CodexWsCommandContext:
     manager: CodexIpcManager
@@ -98,6 +109,26 @@ class SubscribeThreadCommandStrategy(ThreadCommandStrategy):
         )
         context.subscribed_thread_ids.add(thread_id)
         return {"thread_id": thread_id, "state": state}
+
+
+class SubscribeThreadDeltaCommandStrategy(ThreadCommandStrategy):
+    async def execute(self, context: CodexWsCommandContext) -> dict[str, Any]:
+        thread_id = self.thread_id(context)
+        payload = await context.manager.subscribe_with_initial_turn_delta(
+            thread_id,
+            context.outbox,
+            cached_turn_ids=_payload_text_list(
+                context.payload,
+                "cached_turn_ids",
+            ),
+            refresh_turn_ids=_payload_text_list(
+                context.payload,
+                "refresh_turn_ids",
+            ),
+            host_id=self.host_id(context),
+        )
+        context.subscribed_thread_ids.add(thread_id)
+        return payload
 
 
 class UnsubscribeThreadCommandStrategy(ThreadCommandStrategy):
@@ -273,6 +304,7 @@ class CodexWsCommandStrategyFactory:
             "list_threads": ListThreadsCommandStrategy(),
             "start_thread": StartThreadCommandStrategy(),
             "subscribe_thread": SubscribeThreadCommandStrategy(),
+            "subscribe_thread_delta": SubscribeThreadDeltaCommandStrategy(),
             "unsubscribe_thread": UnsubscribeThreadCommandStrategy(),
             "send_prompt": SendPromptCommandStrategy(),
             "steer_prompt": SteerPromptCommandStrategy(),

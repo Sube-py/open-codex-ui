@@ -2,6 +2,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { apiGet } from '../../lib/api'
 import { CodexSocket } from '../lib/codexSocket'
+import type { CodexTurnCache } from '../lib/codexTurnCache'
+import { CodexTurnSync, normalizeThreadDeltaPayload } from '../lib/codexTurnSync'
 import { isRecord, isWorkingStatus } from '../lib/format'
 import type {
   CodexCollaborationMode,
@@ -17,6 +19,7 @@ import type {
   CodexThreadGoalStatus,
   CodexThreadCreateResponse,
   CodexThreadForkResponse,
+  CodexThreadStateDeltaPayload,
   CodexThreadStatePayload,
   CodexWorkMode,
   CodexWorkspaceResponse,
@@ -44,6 +47,7 @@ export interface UseCodexWorkspaceOptions {
   selectInitialThread?: boolean
   socket?: CodexRealtimeClient
   socketUrl?: string
+  turnCache?: CodexTurnCache
 }
 
 function readActiveThreadId(enabled = true) {
@@ -327,6 +331,7 @@ function mergePersistedGoalState(
 export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
   const persistThreadSelection = options.persistActiveThread !== false
   const socket = options.socket ?? new CodexSocket(options.socketUrl)
+  const turnSync = new CodexTurnSync(options.turnCache)
   const status = ref<CodexSocketStatus>('idle')
   const workspace = ref<CodexWorkspaceResponse>(emptyWorkspace())
   const threadPayloads = ref<Record<string, CodexThreadStatePayload>>({})
@@ -420,6 +425,12 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     syncWorkspaceThreadStatus(payload.thread_id, state)
   }
 
+  function applyThreadDelta(payload: CodexThreadStateDeltaPayload) {
+    const currentState = threadPayloads.value[payload.thread_id]?.state
+    const currentTurns = Array.isArray(currentState?.turns) ? currentState.turns : []
+    setThreadPayload(turnSync.applyDelta(payload, currentTurns))
+  }
+
   function syncWorkspaceThreadStatus(threadId: string, state: CodexConversationState | null) {
     if (!state) {
       return
@@ -490,6 +501,14 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
       const payload = normalizeThreadPayload(event.payload, '')
       if (payload) {
         setThreadPayload(payload)
+        turnSync.rememberFull(payload)
+      }
+      return
+    }
+    if (event.type === 'thread_state_delta') {
+      const payload = normalizeThreadDeltaPayload(event.payload, '')
+      if (payload) {
+        applyThreadDelta(payload)
       }
       return
     }
@@ -497,6 +516,7 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
       const threadId = threadIdFromEvent(event.payload)
       if (threadId) {
         removeThreadPayload(threadId)
+        turnSync.remove(threadId)
         if (activeThreadId.value === threadId) {
           activeThreadId.value = ''
           persistActiveThreadId('', persistThreadSelection)
@@ -612,13 +632,21 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
       activeThreadId.value = normalizedThreadId
       activeSubscriptionId.value = normalizedThreadId
       persistActiveThreadId(normalizedThreadId, persistThreadSelection)
-      const payload = await socket.sendCommand<CodexThreadStatePayload>('subscribe_thread', {
-        thread_id: normalizedThreadId,
-        ...(resolvedHostId !== 'local' ? { host_id: resolvedHostId } : {}),
-      })
-      const normalizedPayload = normalizeThreadPayload(payload, normalizedThreadId)
+      const cachedTurns = await turnSync.subscriptionCache(normalizedThreadId)
+      const payload = await socket.sendCommand<CodexThreadStateDeltaPayload>(
+        'subscribe_thread_delta',
+        {
+          thread_id: normalizedThreadId,
+          cached_turn_ids: cachedTurns.cached_turn_ids,
+          ...(cachedTurns.refresh_turn_ids.length
+            ? { refresh_turn_ids: cachedTurns.refresh_turn_ids }
+            : {}),
+          ...(resolvedHostId !== 'local' ? { host_id: resolvedHostId } : {}),
+        },
+      )
+      const normalizedPayload = normalizeThreadDeltaPayload(payload, normalizedThreadId)
       if (normalizedPayload) {
-        setThreadPayload(normalizedPayload)
+        applyThreadDelta(normalizedPayload)
       }
       void hydrateThreadGoal(normalizedThreadId)
       return true
@@ -638,13 +666,15 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
       })
       const threadId = payload.thread_id
       if (payload.state) {
-        setThreadPayload({
+        const threadPayload = {
           thread_id: threadId,
           host_id: payload.host_id || hostId,
           state: payload.state,
           stream_role: null,
           queued_followups: [],
-        })
+        }
+        setThreadPayload(threadPayload)
+        turnSync.rememberFull(threadPayload)
       }
       await refreshWorkspace()
       await selectThread(threadId, payload.host_id || hostId)
@@ -997,13 +1027,15 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
         throw new Error('Codex did not return a forked thread id.')
       }
       if (payload.state) {
-        setThreadPayload({
+        const threadPayload = {
           thread_id: forkedThreadId,
           host_id: payload.host_id || sourceHostId,
           state: payload.state,
           stream_role: null,
           queued_followups: [],
-        })
+        }
+        setThreadPayload(threadPayload)
+        turnSync.rememberFull(threadPayload)
       }
       await refreshWorkspace()
       const selected = await selectThread(

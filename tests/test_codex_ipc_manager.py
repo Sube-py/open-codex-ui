@@ -1488,6 +1488,94 @@ def test_codex_controller_http_and_websocket_contract(tmp_path: Path) -> None:
             assert goal_clear_messages[-1]["payload"]["cleared"] is True
             assert factory.by_thread_id("thread-a").goal_clear_calls == 1
 
+            factory.by_thread_id("thread-a").emit_state(
+                {
+                    "id": "thread-a",
+                    "phase": "delta-ready",
+                    "turns": [
+                        {
+                            "turnId": "turn-1",
+                            "status": "completed",
+                            "items": [{"type": "agentMessage", "text": "cached"}],
+                        },
+                        {
+                            "turnId": "turn-2",
+                            "status": "completed",
+                            "items": [{"type": "agentMessage", "text": "latest"}],
+                        },
+                    ],
+                }
+            )
+            receive_until(
+                lambda message: (
+                    message.get("type") == "thread_state"
+                    and message["payload"]["state"].get("phase") == "delta-ready"
+                )
+            )
+            ws.send_json(
+                {
+                    "id": "sub-delta",
+                    "type": "subscribe_thread_delta",
+                    "payload": {
+                        "thread_id": "thread-a",
+                        "cached_turn_ids": ["turn-1"],
+                    },
+                }
+            )
+            delta_messages = receive_until(
+                lambda message: (
+                    message.get("type") == "ack" and message.get("id") == "sub-delta"
+                )
+            )
+            delta_payload = delta_messages[-1]["payload"]
+            assert delta_payload["turn_ids"] == ["turn-1", "turn-2"]
+            assert [turn["turnId"] for turn in delta_payload["turns"]] == ["turn-2"]
+            assert "turns" not in delta_payload["state"]
+            assert "turnHistory" not in delta_payload["state"]
+
+            factory.by_thread_id("thread-a").emit_state(
+                {
+                    "id": "thread-a",
+                    "phase": "working",
+                    "turns": [
+                        {
+                            "turnId": "turn-1",
+                            "status": "completed",
+                            "items": [],
+                        },
+                        {
+                            "turnId": "turn-2",
+                            "status": "inProgress",
+                            "items": [{"type": "agentMessage", "text": "updated"}],
+                        },
+                    ],
+                }
+            )
+            live_delta = receive_until(
+                lambda message: (
+                    message.get("type") == "thread_state"
+                    and message["payload"]["state"].get("phase") == "working"
+                )
+            )[-1]
+            assert [
+                turn["turnId"] for turn in live_delta["payload"]["state"]["turns"]
+            ] == [
+                "turn-1",
+                "turn-2",
+            ]
+            live_session_event = receive_until(
+                lambda message: (
+                    message.get("type") == "codex_session_event"
+                    and message["payload"].get("method")
+                    == "thread-stream-state-changed"
+                    and message["payload"]["params"]["state"].get("phase") == "working"
+                )
+            )[-1]
+            assert [
+                turn["turnId"]
+                for turn in live_session_event["payload"]["params"]["state"]["turns"]
+            ] == ["turn-1", "turn-2"]
+
             ws.send_json(
                 {
                     "id": "archive-1",
