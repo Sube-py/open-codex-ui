@@ -8,6 +8,7 @@ import plistlib
 import re
 import subprocess
 import sys
+import time
 from typing import Any, Callable
 
 
@@ -93,6 +94,8 @@ class SystemService(ABC):
 class LaunchdService(SystemService):
     label = "io.github.sube.open-codex-ui"
     name = "Open Codex UI launch agent"
+    unload_poll_attempts = 40
+    unload_poll_interval = 0.05
 
     def __init__(
         self,
@@ -101,12 +104,14 @@ class LaunchdService(SystemService):
         runtime_dir: Path,
         uid: int | None = None,
         runner: CommandRunner = run_command,
+        sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
         self.home_dir = home_dir
         self.runtime_dir = runtime_dir
         getuid = getattr(os, "getuid", None)
         self.uid = getuid() if uid is None and getuid is not None else (uid or 0)
         self.runner = runner
+        self.sleeper = sleeper
         self.plist_path = home_dir / "Library" / "LaunchAgents" / f"{self.label}.plist"
 
     @property
@@ -150,7 +155,7 @@ class LaunchdService(SystemService):
             )
             if result.returncode == 0:
                 return
-            if self._is_loaded():
+            if not self._wait_until_unloaded():
                 detail = (result.stderr or result.stdout or "").strip()
                 suffix = f": {detail}" if detail else ""
                 raise ServiceError(
@@ -161,6 +166,10 @@ class LaunchdService(SystemService):
     def stop(self) -> None:
         if self._is_loaded():
             self.runner(["launchctl", "bootout", self.target])
+            if not self._wait_until_unloaded():
+                raise ServiceError(
+                    f"Timed out waiting for launch agent {self.label} to stop."
+                )
 
     def status(self) -> ServiceStatus:
         if not self.plist_path.exists():
@@ -187,6 +196,14 @@ class LaunchdService(SystemService):
             capture_output=True,
         )
         return result.returncode == 0
+
+    def _wait_until_unloaded(self) -> bool:
+        for attempt in range(self.unload_poll_attempts):
+            if not self._is_loaded():
+                return True
+            if attempt + 1 < self.unload_poll_attempts:
+                self.sleeper(self.unload_poll_interval)
+        return False
 
 
 class SystemdUserService(SystemService):

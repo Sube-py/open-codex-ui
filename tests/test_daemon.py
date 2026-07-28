@@ -402,6 +402,47 @@ def test_launchd_start_bootstraps_after_bootout_race(tmp_path: Path) -> None:
     ]
 
 
+def test_launchd_stop_waits_until_bootout_finishes(tmp_path: Path) -> None:
+    calls: list[tuple[list[str], bool, bool]] = []
+    sleeps: list[float] = []
+    loaded_results = iter(
+        [
+            completed([], stdout="state = running\n"),
+            completed([], stdout="state = SIGTERMed\n"),
+            completed([], returncode=1),
+        ]
+    )
+
+    def runner(
+        command: list[str],
+        *,
+        check: bool = True,
+        capture_output: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((command, check, capture_output))
+        if command[:2] == ["launchctl", "print"]:
+            return next(loaded_results)
+        return completed(command)
+
+    service = LaunchdService(
+        home_dir=tmp_path,
+        runtime_dir=tmp_path / "runtime",
+        uid=501,
+        runner=runner,
+        sleeper=sleeps.append,
+    )
+
+    service.stop()
+
+    assert calls == [
+        (["launchctl", "print", service.target], False, True),
+        (["launchctl", "bootout", service.target], True, False),
+        (["launchctl", "print", service.target], False, True),
+        (["launchctl", "print", service.target], False, True),
+    ]
+    assert sleeps == [service.unload_poll_interval]
+
+
 def test_systemd_service_writes_and_enables_user_unit(tmp_path: Path) -> None:
     runner = RecordingRunner()
     service = SystemdUserService(
