@@ -728,6 +728,7 @@ def test_codex_manager_tracks_first_and_last_thread_subscribers(
         )
         first_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         second_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        resumed_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
         await manager.start()
         await manager.subscribe("thread-a", first_queue)
@@ -747,6 +748,12 @@ def test_codex_manager_tracks_first_and_last_thread_subscribers(
 
         await manager.unsubscribe("thread-a", second_queue)
         assert session.following_calls == [True, False]
+
+        await manager.subscribe("thread-a", resumed_queue)
+        assert session.following_calls == [True, False, True]
+
+        await manager.unsubscribe("thread-a", resumed_queue)
+        assert session.following_calls == [True, False, True, False]
 
         await manager.stop()
 
