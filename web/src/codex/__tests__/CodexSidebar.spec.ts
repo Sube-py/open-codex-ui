@@ -172,6 +172,21 @@ describe('CodexSidebar', () => {
     })
   })
 
+  it('uses native scrolling for the thread list', () => {
+    const wrapper = mountSidebar()
+    const scrollContainer = wrapper.get('[data-codex-sidebar-scroll]')
+
+    expect(scrollContainer.classes()).toEqual(
+      expect.arrayContaining([
+        'codex-scrollbar',
+        'overflow-y-auto',
+        'overscroll-contain',
+        'touch-pan-y',
+      ]),
+    )
+    expect(wrapper.find('.p-scrollpanel').exists()).toBe(false)
+  })
+
   it('sorts project groups and threads by latest usage time', () => {
     const wrapper = mountSidebar()
     const projectButtons = wrapper.findAll('[data-codex-project-toggle]')

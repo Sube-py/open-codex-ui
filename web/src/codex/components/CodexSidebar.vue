@@ -4,7 +4,6 @@ import { computed, nextTick, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Menu from 'primevue/menu'
-import ScrollPanel from 'primevue/scrollpanel'
 
 import appIconUrl from '../../assets/open-codex-ui-icon.svg'
 import type { CodexNativeSessionSummary, CodexProjectGroup, CodexWorkspaceResponse } from '../types'
@@ -382,7 +381,10 @@ async function copyThreadId(threadId: string) {
       />
     </header>
 
-    <ScrollPanel class="min-h-0 flex-1">
+    <div
+      class="codex-scrollbar min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain"
+      data-codex-sidebar-scroll
+    >
       <div class="p-3">
         <div
           v-if="!sections.length"
@@ -555,7 +557,7 @@ async function copyThreadId(threadId: string) {
           </div>
         </section>
       </div>
-    </ScrollPanel>
+    </div>
 
     <footer
       class="border-t border-[color:var(--app-border)] p-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))]"

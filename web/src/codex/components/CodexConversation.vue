@@ -1434,7 +1434,7 @@ const justDebug = false
 <template>
   <section
     ref="conversationBody"
-    class="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip bg-[color:var(--app-bg)] px-5 py-4 [overflow-anchor:none] max-sm:px-2.5"
+    class="codex-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip bg-[color:var(--app-bg)] px-5 py-4 [overflow-anchor:none] max-sm:px-2.5"
     data-codex-conversation-body
     @scroll="onConversationScroll"
   >

@@ -73,6 +73,14 @@ describe('CodexConversation', () => {
     })
   })
 
+  it('uses the shared themed scrollbar for the conversation body', () => {
+    const wrapper = mountConversation([])
+
+    expect(wrapper.get('[data-codex-conversation-body]').classes()).toEqual(
+      expect.arrayContaining(['codex-scrollbar', 'overflow-y-auto']),
+    )
+  })
+
   it('renders conversational agent messages as markdown with copyable code blocks', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', {
