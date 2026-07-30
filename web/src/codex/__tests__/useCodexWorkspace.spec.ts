@@ -1,6 +1,6 @@
 import { defineComponent, h, nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiGet } from '../../lib/api'
 import { mergeTurnDelta, type CodexTurnCache } from '../lib/codexTurnCache'
@@ -33,6 +33,7 @@ class FakeCodexSocket implements CodexRealtimeClient {
   readonly eventListeners = new Set<(event: CodexServerEvent) => void>()
   readonly statusListeners = new Set<(status: CodexSocketStatus) => void>()
   closed = false
+  connectCount = 0
   readonly forkedThread = {
     thread_id: 'thread-forked',
     title: 'Forked',
@@ -55,6 +56,7 @@ class FakeCodexSocket implements CodexRealtimeClient {
   readonly threadDeltaResponses = new Map<string, unknown>()
 
   async connect() {
+    this.connectCount += 1
     this.statusListeners.forEach((listener) => listener('open'))
     this.emit({ type: 'connection_ready', payload: { ok: true } })
   }
@@ -206,6 +208,10 @@ class FakeCodexSocket implements CodexRealtimeClient {
     this.eventListeners.forEach((listener) => listener(event))
   }
 
+  emitStatus(status: CodexSocketStatus) {
+    this.statusListeners.forEach((listener) => listener(status))
+  }
+
   resolveSubscribe(threadId: string) {
     const resolve = this.subscribeResolvers.get(threadId)
     if (!resolve) {
@@ -275,6 +281,58 @@ describe('useCodexWorkspace', () => {
   beforeEach(() => {
     localStorage.clear()
     apiGetMock.mockReset()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('reconnects after a dropped socket and resubscribes to the active thread', async () => {
+    vi.useFakeTimers()
+    const socket = new FakeCodexSocket()
+    const { wrapper, workspace } = mountHarness(socket)
+    await flushPromises()
+    await workspace.selectThread('thread-b')
+    const commandCount = socket.commands.length
+
+    socket.emitStatus('closed')
+    await vi.advanceTimersByTimeAsync(1_000)
+    await flushPromises()
+
+    expect(socket.connectCount).toBe(2)
+    expect(socket.commands.slice(commandCount).map((command) => command.type)).toEqual([
+      'list_threads',
+      'subscribe_thread_delta',
+      'get_thread_goal',
+    ])
+    expect(socket.commands[socket.commands.length - 2]).toEqual({
+      type: 'subscribe_thread_delta',
+      payload: { thread_id: 'thread-b', cached_turn_ids: [] },
+    })
+    expect(workspace.status.value).toBe('open')
+    wrapper.unmount()
+  })
+
+  it('waits while backgrounded and reconnects immediately on return', async () => {
+    vi.useFakeTimers()
+    let visibilityState: DocumentVisibilityState = 'visible'
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibilityState)
+    const socket = new FakeCodexSocket()
+    const { wrapper } = mountHarness(socket)
+    await flushPromises()
+
+    visibilityState = 'hidden'
+    socket.emitStatus('closed')
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(socket.connectCount).toBe(1)
+
+    visibilityState = 'visible'
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+
+    expect(socket.connectCount).toBe(2)
+    wrapper.unmount()
   })
 
   it('refreshes SSH connection metadata without listing remote threads', async () => {

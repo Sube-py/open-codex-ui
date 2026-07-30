@@ -3,6 +3,7 @@
 
 :root {
   color-scheme: light;
+  --yier-viewport-height: 100dvh;
   --app-bg: #f4f5f3;
   --app-bg-alt: #eceeeb;
   --app-panel: rgba(248, 249, 247, 0.88);
@@ -92,6 +93,27 @@
     content: none;
   }
 
+  html.yier-viewport-lock,
+  body.yier-viewport-lock {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  body.yier-viewport-lock {
+    position: fixed;
+    inset: 0;
+    height: var(--yier-viewport-height, 100dvh);
+  }
+
+  body.yier-viewport-lock #app {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   button,
   input,
   textarea,
@@ -112,7 +134,8 @@
     }
   }
 
-  body.yier-sheet-lock {
+  body.yier-sheet-lock,
+  body.yier-viewport-lock {
     overflow: hidden;
   }
 }

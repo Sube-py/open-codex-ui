@@ -125,6 +125,7 @@ describe('streaming speech utilities', () => {
     })
     MockAudioContext.lastProcessor?.dispatchEvent(audioEvent)
     expect(socket.sent[0]).toBeInstanceOf(Float32Array)
+    expect(speech.level.value).toBeGreaterThan(0)
 
     socket.serverMessage({ type: 'partial', text: '你好' })
     expect(onTranscript).toHaveBeenLastCalledWith('你好', false)
@@ -132,6 +133,7 @@ describe('streaming speech utilities', () => {
     speech.stop()
     expect(socket.sent).toContain(JSON.stringify({ type: 'finish' }))
     expect(stopTrack).toHaveBeenCalled()
+    expect(speech.level.value).toBe(0)
 
     socket.serverMessage({ type: 'final', text: '你好世界' })
     expect(onTranscript).toHaveBeenLastCalledWith('你好世界', true)

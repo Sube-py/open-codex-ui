@@ -86,6 +86,7 @@ export function appendSpeechTranscript(base: string, transcript: string): string
 export function useStreamingSpeech(options: UseStreamingSpeechOptions) {
   const state = ref<StreamingSpeechState>('idle')
   const error = ref('')
+  const level = ref(0)
 
   let socket: WebSocket | null = null
   let mediaStream: MediaStream | null = null
@@ -263,6 +264,7 @@ export function useStreamingSpeech(options: UseStreamingSpeechOptions) {
     silentOutput.gain.value = 0
     audioProcessor.addEventListener('audioprocess', (event: AudioProcessingEvent) => {
       const input = event.inputBuffer.getChannelData(0)
+      level.value = smoothedAudioLevel(level.value, input)
       const samples = resampler.push(input)
       if (samples.length && socket?.readyState === WebSocket.OPEN) {
         socket.send(samples)
@@ -274,6 +276,7 @@ export function useStreamingSpeech(options: UseStreamingSpeechOptions) {
   }
 
   function cleanupAudio() {
+    level.value = 0
     if (audioProcessor) {
       audioProcessor.disconnect()
       audioProcessor = null
@@ -321,11 +324,25 @@ export function useStreamingSpeech(options: UseStreamingSpeechOptions) {
   return {
     state,
     error,
+    level,
     start,
     stop,
     clearError,
     dispose,
   }
+}
+
+function smoothedAudioLevel(previousLevel: number, input: Float32Array): number {
+  if (!input.length) {
+    return previousLevel * 0.72
+  }
+  let sumOfSquares = 0
+  for (const sample of input) {
+    sumOfSquares += sample * sample
+  }
+  const targetLevel = Math.min(1, Math.sqrt(sumOfSquares / input.length) * 4)
+  const smoothing = targetLevel > previousLevel ? 0.75 : 0.28
+  return previousLevel + (targetLevel - previousLevel) * smoothing
 }
 
 function createAudioContext(): AudioContext {

@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { apiGet } from '../../lib/api'
+import { CodexReconnectController } from '../lib/codexReconnect'
 import { CodexSocket } from '../lib/codexSocket'
 import type { CodexTurnCache } from '../lib/codexTurnCache'
 import { CodexTurnSync, normalizeThreadDeltaPayload } from '../lib/codexTurnSync'
@@ -347,6 +348,11 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
   const archivingThreadId = ref('')
   const forkingThreadId = ref('')
   const projectPathDraft = ref('')
+  const reconnectController = new CodexReconnectController({
+    reconnect: restoreSocketConnection,
+  })
+  let unsubscribeSocketEvent: (() => void) | null = null
+  let unsubscribeSocketStatus: (() => void) | null = null
 
   const flatThreads = computed<CodexNativeSessionSummary[]>(() =>
     [
@@ -559,24 +565,46 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
   async function connect() {
     isBooting.value = true
     errorMessage.value = ''
-    const unsubscribeEvent = socket.onEvent(handleSocketEvent)
-    const unsubscribeStatus = socket.onStatus((nextStatus) => {
-      status.value = nextStatus
-    })
+    attachSocketListeners()
+    reconnectController.start()
     try {
-      await socket.connect()
-      if (options.selectInitialThread !== false) {
-        await refreshWorkspaceAndSelect()
-      }
+      await restoreSocketConnection()
     } catch (error) {
       errorMessage.value = toErrorMessage(error)
     } finally {
       isBooting.value = false
     }
-    return () => {
-      unsubscribeEvent()
-      unsubscribeStatus()
+  }
+
+  function attachSocketListeners() {
+    if (unsubscribeSocketEvent || unsubscribeSocketStatus) {
+      return
     }
+    unsubscribeSocketEvent = socket.onEvent(handleSocketEvent)
+    unsubscribeSocketStatus = socket.onStatus((nextStatus) => {
+      status.value = nextStatus
+      reconnectController.handleStatus(nextStatus)
+    })
+  }
+
+  async function restoreSocketConnection() {
+    await socket.connect()
+    errorMessage.value = ''
+    if (options.selectInitialThread !== false) {
+      await refreshWorkspaceAndSelect()
+      return
+    }
+    if (activeThreadId.value) {
+      await selectThread(activeThreadId.value, activeThreadHostId.value)
+    }
+  }
+
+  function teardownSocketConnection() {
+    reconnectController.stop()
+    unsubscribeSocketEvent?.()
+    unsubscribeSocketStatus?.()
+    unsubscribeSocketEvent = null
+    unsubscribeSocketStatus = null
   }
 
   async function refreshWorkspace() {
@@ -1164,18 +1192,16 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     }
   }
 
-  let teardown: (() => void) | null = null
   onMounted(async () => {
     if (options.autoConnect === false) {
       isBooting.value = false
       return
     }
-    teardown = await connect()
+    await connect()
   })
 
   onBeforeUnmount(() => {
-    teardown?.()
-    teardown = null
+    teardownSocketConnection()
     socket.close()
   })
 

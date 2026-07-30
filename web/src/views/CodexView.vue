@@ -5,7 +5,10 @@ import CodexChatPane from '../codex/components/CodexChatPane.vue'
 import CodexSidebar from '../codex/components/CodexSidebar.vue'
 import { useCodexWorkspace } from '../codex/composables/useCodexWorkspace'
 import { activeThreadTitle } from '../codex/lib/format'
+import { useViewportLock } from '../composables/useViewportLock'
 import type { JsonRecord } from '../codex/types'
+
+useViewportLock()
 
 const codex = proxyRefs(useCodexWorkspace())
 const isMobileThreadDrawerOpen = ref(false)
@@ -57,7 +60,7 @@ function startMobileThread(projectPath: string, hostId?: string) {
 
 <template>
   <div
-    class="grid h-dvh grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] overflow-hidden bg-[color:var(--app-bg)] max-lg:grid-cols-1"
+    class="grid h-(--yier-viewport-height) grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] overflow-hidden bg-[color:var(--app-bg)] max-lg:grid-cols-1"
   >
     <CodexSidebar
       v-model:project-path="codex.projectPathDraft"

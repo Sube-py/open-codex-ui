@@ -20,6 +20,9 @@ import {
 } from '../codex/lib/embedProtocol'
 import { activeThreadTitle } from '../codex/lib/format'
 import type { CodexWorkMode, JsonRecord } from '../codex/types'
+import { useViewportLock } from '../composables/useViewportLock'
+
+useViewportLock()
 
 const route = useRoute()
 const embedToken = queryText('embed_token')
@@ -357,7 +360,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="flex h-dvh min-h-0 flex-col overflow-hidden bg-[color:var(--app-bg)]">
+  <main
+    class="flex h-(--yier-viewport-height) min-h-0 flex-col overflow-hidden bg-[color:var(--app-bg)]"
+  >
     <div
       class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)] items-center gap-3 border-b border-[color:var(--app-border)] bg-[color:var(--app-panel-strong)] px-4 py-2 pt-[calc(0.5rem+env(safe-area-inset-top))] max-sm:px-3"
     >

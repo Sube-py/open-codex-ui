@@ -26,6 +26,7 @@ import {
 import { appendSpeechTranscript, useStreamingSpeech } from '../composables/useStreamingSpeech'
 import CodexHostPathPicker from './CodexHostPathPicker.vue'
 import CodexSlashCommandMenu from './CodexSlashCommandMenu.vue'
+import CodexSpeechWaveform from './CodexSpeechWaveform.vue'
 
 const draft = defineModel<string>({ required: true })
 
@@ -185,6 +186,9 @@ const hasPromptInput = computed(
 )
 const canSubmitText = computed(() => hasPromptInput.value && !props.disabled && !props.busy)
 const speechActive = computed(() => speech.state.value !== 'idle')
+const speechCaptureActive = computed(
+  () => speech.state.value === 'connecting' || speech.state.value === 'recording',
+)
 const speechButtonLabel = computed(() =>
   speech.state.value === 'idle' ? 'Hold to speak' : 'Release to finish',
 )
@@ -484,6 +488,18 @@ function stopSpeechKeyboard(event: KeyboardEvent) {
   event.preventDefault()
   speechKeyboardActive = false
   speech.stop()
+}
+
+function cancelSpeechInput() {
+  speechPointerId = null
+  speechKeyboardActive = false
+  speech.dispose()
+}
+
+function cancelSpeechWhenHidden() {
+  if (document.visibilityState === 'hidden') {
+    cancelSpeechInput()
+  }
 }
 
 function toggleGoalComposeMode() {
@@ -1016,18 +1032,20 @@ function removeFileAttachment(index: number) {
 onMounted(() => {
   window.addEventListener('resize', repositionOpenMenus)
   window.addEventListener('scroll', repositionOpenMenus, true)
+  window.addEventListener('pagehide', cancelSpeechInput)
   document.addEventListener('click', onDocumentClick)
   document.addEventListener('keydown', onDocumentKeydown, true)
+  document.addEventListener('visibilitychange', cancelSpeechWhenHidden)
 })
 
 onBeforeUnmount(() => {
-  speechPointerId = null
-  speechKeyboardActive = false
-  speech.dispose()
+  cancelSpeechInput()
   window.removeEventListener('resize', repositionOpenMenus)
   window.removeEventListener('scroll', repositionOpenMenus, true)
+  window.removeEventListener('pagehide', cancelSpeechInput)
   document.removeEventListener('click', onDocumentClick)
   document.removeEventListener('keydown', onDocumentKeydown, true)
+  document.removeEventListener('visibilitychange', cancelSpeechWhenHidden)
 })
 
 async function onPaste(event: ClipboardEvent) {
@@ -1406,6 +1424,11 @@ function goalProgressText(goal: CodexThreadGoal | null) {
 </script>
 
 <template>
+  <CodexSpeechWaveform
+    :active="speechCaptureActive"
+    :connecting="speech.state.value === 'connecting'"
+    :level="speech.level.value"
+  />
   <section
     class="sticky bottom-0 z-10 mt-auto w-full pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4"
     ref="composerShell"

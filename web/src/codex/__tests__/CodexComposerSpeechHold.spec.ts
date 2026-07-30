@@ -6,8 +6,10 @@ import type { Ref } from 'vue'
 
 type SpeechSession = {
   state: Ref<'idle' | 'connecting' | 'recording' | 'stopping'>
+  level: Ref<number>
   start: ReturnType<typeof vi.fn>
   stop: ReturnType<typeof vi.fn>
+  dispose: ReturnType<typeof vi.fn>
 }
 
 const speechHarness = vi.hoisted(() => ({
@@ -25,6 +27,7 @@ vi.mock('../composables/useStreamingSpeech', async (importOriginal) => {
       const state = ref<'idle' | 'connecting' | 'recording' | 'stopping'>('idle')
       const session = {
         state,
+        level: ref(0.6),
         error: ref(''),
         start: vi.fn(() => {
           state.value = 'recording'
@@ -34,7 +37,9 @@ vi.mock('../composables/useStreamingSpeech', async (importOriginal) => {
           state.value = 'stopping'
         }),
         clearError: vi.fn(),
-        dispose: vi.fn(),
+        dispose: vi.fn(() => {
+          state.value = 'idle'
+        }),
       }
       speechHarness.sessions.push(session)
       return session
@@ -109,12 +114,14 @@ describe('CodexComposer push-to-talk input', () => {
     expect(session.start).toHaveBeenCalledOnce()
     expect(button.attributes('aria-label')).toBe('Release to finish')
     expect(button.attributes('aria-pressed')).toBe('true')
+    expect(document.body.querySelector('[data-codex-speech-waveform]')).not.toBeNull()
 
     dispatchPointerEvent(button.element, 'pointerup', { button: 0, pointerId: 7 })
     await wrapper.vm.$nextTick()
 
     expect(releasePointerCapture).toHaveBeenCalledWith(7)
     expect(session.stop).toHaveBeenCalledOnce()
+    expect(document.body.querySelector('[data-codex-speech-waveform]')).toBeNull()
   })
 
   it('supports holding Space from the keyboard', async () => {
@@ -127,5 +134,24 @@ describe('CodexComposer push-to-talk input', () => {
 
     await button.trigger('keyup', { key: ' ' })
     expect(session.stop).toHaveBeenCalledOnce()
+  })
+
+  it('cancels voice input when the page moves to the background', async () => {
+    let visibilityState: DocumentVisibilityState = 'visible'
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibilityState)
+    const wrapper = mountComposer()
+    const session = speechHarness.sessions[0]!
+    const button = wrapper.get('[data-codex-speech-input]')
+
+    dispatchPointerEvent(button.element, 'pointerdown', { button: 0, pointerId: 9 })
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('[data-codex-speech-waveform]')).not.toBeNull()
+
+    visibilityState = 'hidden'
+    document.dispatchEvent(new Event('visibilitychange'))
+    await wrapper.vm.$nextTick()
+
+    expect(session.dispose).toHaveBeenCalledOnce()
+    expect(document.body.querySelector('[data-codex-speech-waveform]')).toBeNull()
   })
 })
