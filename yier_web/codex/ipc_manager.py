@@ -44,7 +44,7 @@ from yier_web.codex.session_events import (
     CodexSessionEventSink,
     Unsubscribe,
 )
-from yier_web.codex.turn_sync import InitialTurnEventProjector
+from yier_web.codex.turn_sync import TurnEventProjector
 from yier_web.event_stream import EventStreamBroker
 from yier_web.schemas import (
     CodexFilesystemEntry,
@@ -676,7 +676,7 @@ print(json.dumps({
         )
         return state
 
-    async def subscribe_with_initial_turn_delta(
+    async def subscribe_with_turn_deltas(
         self,
         thread_id: str,
         queue: CodexSubscriberQueue,
@@ -685,26 +685,23 @@ print(json.dumps({
         refresh_turn_ids: list[str],
         host_id: str | None = None,
     ) -> JsonDict:
-        projector = InitialTurnEventProjector(
+        projector = TurnEventProjector(
             cached_turn_ids,
             refresh_turn_ids,
         )
-        try:
-            state = await self.subscribe(
-                thread_id,
-                queue,
-                host_id=host_id,
-                projector=projector,
-            )
-            managed = self._threads[thread_id]
-            return projector.thread_payload(
-                thread_id=thread_id,
-                state=state,
-                stream_role=managed.session.stream_role,
-                queued_followups=managed.session.queued_followups,
-            )
-        finally:
-            self._session_events.set_thread_projector(thread_id, queue, None)
+        state = await self.subscribe(
+            thread_id,
+            queue,
+            host_id=host_id,
+            projector=projector,
+        )
+        managed = self._threads[thread_id]
+        return projector.thread_payload(
+            thread_id=thread_id,
+            state=state,
+            stream_role=managed.session.stream_role,
+            queued_followups=managed.session.queued_followups,
+        )
 
     async def unsubscribe(
         self,

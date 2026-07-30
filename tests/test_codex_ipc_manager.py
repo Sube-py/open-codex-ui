@@ -1558,30 +1558,25 @@ def test_codex_controller_http_and_websocket_contract(tmp_path: Path) -> None:
                     ],
                 }
             )
-            live_delta = receive_until(
+            live_delta_messages = receive_until(
                 lambda message: (
-                    message.get("type") == "thread_state"
+                    message.get("type") == "thread_state_delta"
                     and message["payload"]["state"].get("phase") == "working"
                 )
-            )[-1]
+            )
+            live_delta = live_delta_messages[-1]
             assert [
-                turn["turnId"] for turn in live_delta["payload"]["state"]["turns"]
-            ] == [
-                "turn-1",
-                "turn-2",
-            ]
-            live_session_event = receive_until(
-                lambda message: (
-                    message.get("type") == "codex_session_event"
-                    and message["payload"].get("method")
-                    == "thread-stream-state-changed"
-                    and message["payload"]["params"]["state"].get("phase") == "working"
-                )
-            )[-1]
-            assert [
-                turn["turnId"]
-                for turn in live_session_event["payload"]["params"]["state"]["turns"]
-            ] == ["turn-1", "turn-2"]
+                turn["turnId"] for turn in live_delta["payload"]["turns"]
+            ] == ["turn-2"]
+            assert "turns" not in live_delta["payload"]["state"]
+            assert "turnHistory" not in live_delta["payload"]["state"]
+            assert not any(
+                message.get("type") == "codex_session_event"
+                and message["payload"].get("method")
+                == "thread-stream-state-changed"
+                and message["payload"]["params"]["state"].get("phase") == "working"
+                for message in live_delta_messages
+            )
 
             ws.send_json(
                 {

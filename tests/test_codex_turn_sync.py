@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from yier_web.codex.turn_sync import (
-    InitialTurnEventProjector,
+    TurnEventProjector,
     incremental_turn_state,
 )
 
@@ -72,7 +72,7 @@ def test_incremental_turn_state_returns_missing_and_idless_turns() -> None:
 
 
 def test_incremental_projector_refreshes_mutable_turn_after_new_turn_arrives() -> None:
-    projector = InitialTurnEventProjector(
+    projector = TurnEventProjector(
         ["turn-1"],
         ["turn-1"],
     )
@@ -94,7 +94,7 @@ def test_incremental_projector_refreshes_mutable_turn_after_new_turn_arrives() -
 
 
 def test_incremental_projector_drops_duplicate_native_state_event() -> None:
-    projector = InitialTurnEventProjector([])
+    projector = TurnEventProjector([])
 
     event = projector(
         {

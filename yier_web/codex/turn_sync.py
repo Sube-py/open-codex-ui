@@ -61,8 +61,8 @@ def incremental_turn_state(
     return live_state, ordered_ids, changed_turns
 
 
-class InitialTurnEventProjector:
-    """Project state events only while an initial WebSocket subscribe runs."""
+class TurnEventProjector:
+    """Project state events throughout one WebSocket thread subscription."""
 
     def __init__(
         self,

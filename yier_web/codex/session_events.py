@@ -52,16 +52,6 @@ class CodexSessionEventHub:
             return True
         return False
 
-    def set_thread_projector(
-        self,
-        thread_id: str,
-        queue: CodexSessionEventQueue,
-        projector: CodexSessionEventProjector | None,
-    ) -> None:
-        subscribers = self._thread_subscribers.get(thread_id)
-        if subscribers is not None and queue in subscribers:
-            subscribers[queue] = projector
-
     def clear_thread(self, thread_id: str) -> None:
         self._thread_subscribers.pop(thread_id, None)
 

@@ -114,7 +114,7 @@ class SubscribeThreadCommandStrategy(ThreadCommandStrategy):
 class SubscribeThreadDeltaCommandStrategy(ThreadCommandStrategy):
     async def execute(self, context: CodexWsCommandContext) -> dict[str, Any]:
         thread_id = self.thread_id(context)
-        payload = await context.manager.subscribe_with_initial_turn_delta(
+        payload = await context.manager.subscribe_with_turn_deltas(
             thread_id,
             context.outbox,
             cached_turn_ids=_payload_text_list(
