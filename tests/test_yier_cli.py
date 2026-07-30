@@ -215,4 +215,4 @@ def test_main_reports_installed_version(capsys: pytest.CaptureFixture[str]) -> N
         cli.main(["--version"])
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.startswith("open-codex-ui 0.1.12")
+    assert capsys.readouterr().out.startswith("open-codex-ui 0.1.13")

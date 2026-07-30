@@ -625,7 +625,7 @@ wheels = [
 
 [[package]]
 name = "open-codex-ui"
-version = "0.1.12"
+version = "0.1.13"
 source = { editable = "." }
 dependencies = [
     { name = "granian", extra = ["reload"] },
