@@ -6,6 +6,7 @@ from yier_web.routes.core import (
     HealthController,
     SystemController,
 )
+from yier_web.routes.speech import SpeechController
 
 __all__ = [
     "AuthController",
@@ -13,5 +14,6 @@ __all__ = [
     "ConfigController",
     "EventsController",
     "HealthController",
+    "SpeechController",
     "SystemController",
 ]

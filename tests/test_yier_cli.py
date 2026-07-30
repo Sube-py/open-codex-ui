@@ -171,6 +171,45 @@ def test_main_dispatches_tunnel_commands(
         assert calls[0][1]["origin"] is None
 
 
+@pytest.mark.parametrize(
+    ("arguments", "method_name", "expected_kwargs"),
+    [
+        (["speech", "install"], "install", {"force": False}),
+        (["speech", "install", "--force"], "install", {"force": True}),
+        (["speech", "status"], "status", {}),
+        (["speech", "remove"], "remove", {}),
+    ],
+)
+def test_main_dispatches_speech_commands(
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: list[str],
+    method_name: str,
+    expected_kwargs: dict[str, Any],
+) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    class FakeSpeechModelManager:
+        def __init__(self, *, models_dir: Any) -> None:
+            assert models_dir is None
+
+        def install(self, **kwargs: Any) -> int:
+            calls.append(("install", kwargs))
+            return 0
+
+        def status(self) -> int:
+            calls.append(("status", {}))
+            return 0
+
+        def remove(self) -> int:
+            calls.append(("remove", {}))
+            return 0
+
+    monkeypatch.setattr(cli, "SpeechModelManager", FakeSpeechModelManager)
+
+    assert cli.main(arguments) == 0
+    assert calls == [(method_name, expected_kwargs)]
+
+
 def test_main_reports_installed_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         cli.main(["--version"])

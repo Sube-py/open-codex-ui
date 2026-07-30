@@ -23,6 +23,7 @@ import {
   type CodexSlashCommandDefinition,
   type CodexSlashQueryMatch,
 } from '../lib/slashCommands'
+import { appendSpeechTranscript, useStreamingSpeech } from '../composables/useStreamingSpeech'
 import CodexHostPathPicker from './CodexHostPathPicker.vue'
 import CodexSlashCommandMenu from './CodexSlashCommandMenu.vue'
 
@@ -99,6 +100,14 @@ const slashMenuSuppressed = ref(false)
 const statusPanelOpen = ref(false)
 const selectedPermissionMode = ref<PermissionMode>('full')
 const todoExpanded = ref(false)
+const speechDraftBase = ref('')
+let speechPointerId: number | null = null
+let speechKeyboardActive = false
+const speech = useStreamingSpeech({
+  onTranscript(text) {
+    draft.value = appendSpeechTranscript(speechDraftBase.value, text)
+  },
+})
 
 const permissionOptions: PermissionOption[] = [
   {
@@ -175,6 +184,19 @@ const hasPromptInput = computed(
     skillAttachments.value.length > 0,
 )
 const canSubmitText = computed(() => hasPromptInput.value && !props.disabled && !props.busy)
+const speechActive = computed(() => speech.state.value !== 'idle')
+const speechButtonLabel = computed(() =>
+  speech.state.value === 'idle' ? 'Hold to speak' : 'Release to finish',
+)
+const speechButtonIcon = computed(() => {
+  if (speech.state.value === 'connecting') {
+    return 'pi pi-spinner pi-spin'
+  }
+  if (speech.state.value === 'recording' || speech.state.value === 'stopping') {
+    return 'pi pi-stop'
+  }
+  return 'pi pi-microphone'
+})
 const primaryAction = computed(() => {
   if (props.isWorking && !hasDraft.value) {
     return 'stop'
@@ -216,9 +238,9 @@ const primaryDisabled = computed(() => {
     return props.disabled || props.busy
   }
   if (isGoalComposeMode.value && !props.isWorking) {
-    return !canSubmitGoal.value
+    return speechActive.value || !canSubmitGoal.value
   }
-  return !canSubmitText.value
+  return speechActive.value || !canSubmitText.value
 })
 const context = computed(() => contextWindowState(props.state))
 const contextRingStyle = computed(() => {
@@ -302,6 +324,7 @@ const statusDetails = computed(() => {
 watch(
   () => props.state?.id,
   () => {
+    speech.dispose()
     selectedModel.value = ''
     selectedReasoningEffort.value = ''
     addMenuOpen.value = false
@@ -402,6 +425,65 @@ function submitPrimary() {
     return
   }
   sendSubmission()
+}
+
+async function beginSpeechInput() {
+  if (props.disabled || props.busy || speech.state.value !== 'idle') {
+    return false
+  }
+  speechDraftBase.value = draft.value
+  await speech.start()
+  return true
+}
+
+function startSpeechPointer(event: PointerEvent) {
+  if (event.button !== 0 || speechPointerId !== null) {
+    return
+  }
+  event.preventDefault()
+  speechPointerId = event.pointerId
+  const target = event.currentTarget as HTMLElement
+  target.setPointerCapture?.(event.pointerId)
+  void beginSpeechInput()
+}
+
+function stopSpeechPointer(event: PointerEvent) {
+  if (speechPointerId !== event.pointerId) {
+    return
+  }
+  event.preventDefault()
+  speechPointerId = null
+  const target = event.currentTarget as HTMLElement
+  if (target.hasPointerCapture?.(event.pointerId)) {
+    target.releasePointerCapture(event.pointerId)
+  }
+  speech.stop()
+}
+
+function stopSpeechOnLostPointerCapture(event: PointerEvent) {
+  if (speechPointerId !== event.pointerId) {
+    return
+  }
+  speechPointerId = null
+  speech.stop()
+}
+
+function startSpeechKeyboard(event: KeyboardEvent) {
+  if ((event.key !== ' ' && event.key !== 'Enter') || event.repeat || speechKeyboardActive) {
+    return
+  }
+  event.preventDefault()
+  speechKeyboardActive = true
+  void beginSpeechInput()
+}
+
+function stopSpeechKeyboard(event: KeyboardEvent) {
+  if ((event.key !== ' ' && event.key !== 'Enter') || !speechKeyboardActive) {
+    return
+  }
+  event.preventDefault()
+  speechKeyboardActive = false
+  speech.stop()
 }
 
 function toggleGoalComposeMode() {
@@ -939,6 +1021,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  speechPointerId = null
+  speechKeyboardActive = false
+  speech.dispose()
   window.removeEventListener('resize', repositionOpenMenus)
   window.removeEventListener('scroll', repositionOpenMenus, true)
   document.removeEventListener('click', onDocumentClick)
@@ -1628,6 +1713,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
           v-model="draft"
           class="max-h-52 min-h-16 w-full min-w-0 resize-none rounded-lg border-0 bg-transparent px-2 py-2 text-sm leading-6 text-[color:var(--app-text)] outline-none placeholder:text-[color:var(--app-text-soft)] max-sm:min-h-14"
           :disabled="disabled"
+          :readonly="speechActive"
           :placeholder="composerPlaceholder"
           data-codex-composer-textarea
           @keydown="onKeydown"
@@ -1637,6 +1723,24 @@ function goalProgressText(goal: CodexThreadGoal | null) {
           @keyup="onComposerSelect"
           @paste="onPaste"
         ></textarea>
+
+        <div
+          v-if="speech.error.value"
+          class="mx-2 mb-2 flex min-w-0 items-center gap-2 text-xs text-[color:var(--app-danger-text)]"
+          role="alert"
+          data-codex-speech-error
+        >
+          <i class="pi pi-exclamation-circle shrink-0 text-[0.7rem]"></i>
+          <span class="min-w-0 flex-1 break-words">{{ speech.error.value }}</span>
+          <button
+            type="button"
+            class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition hover:bg-[color:var(--app-danger-bg)]"
+            aria-label="Dismiss voice input error"
+            @click="speech.clearError"
+          >
+            <i class="pi pi-times text-[0.6rem]"></i>
+          </button>
+        </div>
 
         <div
           v-if="statusPanelOpen"
@@ -1942,6 +2046,34 @@ function goalProgressText(goal: CodexThreadGoal | null) {
                 </div>
               </Popover>
             </div>
+            <button
+              type="button"
+              class="relative inline-flex h-10 min-w-10 shrink-0 touch-none select-none items-center justify-center rounded-full border px-3 text-sm transition disabled:cursor-not-allowed disabled:opacity-45 max-sm:h-9 max-sm:min-w-9 max-sm:px-2.5"
+              :class="
+                speechActive
+                  ? 'border-[color:var(--app-danger-border)] bg-[color:var(--app-danger-bg)] text-[color:var(--app-danger-text)] hover:brightness-95'
+                  : 'border-[color:var(--app-border)] bg-[color:var(--app-surface-raised)] text-[color:var(--app-text)] hover:bg-[color:var(--app-hover)]'
+              "
+              :disabled="busy || disabled || speech.state.value === 'stopping'"
+              :aria-label="speechButtonLabel"
+              :aria-pressed="speechActive"
+              :title="speechButtonLabel"
+              data-codex-speech-input
+              @pointerdown="startSpeechPointer"
+              @pointerup="stopSpeechPointer"
+              @pointercancel="stopSpeechPointer"
+              @lostpointercapture="stopSpeechOnLostPointerCapture"
+              @keydown="startSpeechKeyboard"
+              @keyup="stopSpeechKeyboard"
+              @contextmenu.prevent
+            >
+              <span
+                v-if="speech.state.value === 'recording'"
+                class="absolute inset-0 rounded-full border border-[color:var(--app-danger-border)] motion-safe:animate-ping"
+                aria-hidden="true"
+              ></span>
+              <i :class="speechButtonIcon" class="relative text-xs"></i>
+            </button>
             <button
               type="button"
               class="inline-flex h-10 min-w-10 items-center justify-center rounded-full px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 max-sm:h-9 max-sm:min-w-9 max-sm:px-2.5"

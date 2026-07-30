@@ -165,6 +165,43 @@ export YIER_AUTH_PASSWORD_HASH='paste-generated-hash-here'
 `daemon install` retains `HOME`, `PATH`, `CODEX_HOME`, and current `YIER_*`
 variables in a user-only environment file so they remain available after login.
 
+## Voice Input
+
+The Codex composer can stream microphone audio to a local sherpa-onnx
+transducer model. The default model directory is
+`~/.yier/models/sherpa-onnx`. A bilingual Chinese-English streaming Zipformer
+can be installed with:
+
+```bash
+open-codex-ui speech install
+```
+
+The installer supports interrupted-download resumption, verifies the archive,
+extracts it safely, and atomically activates the model. Standard `HTTPS_PROXY`
+and `ALL_PROXY` environment variables are honored:
+
+```bash
+HTTPS_PROXY=http://127.0.0.1:7890 open-codex-ui speech install
+open-codex-ui speech status
+open-codex-ui speech install --force
+open-codex-ui speech remove
+```
+
+The model is stored outside the Python environment, so it remains available
+after `uv tool` upgrades or reinstalls. The directory must contain
+`tokens.txt`, `encoder*.onnx`, `decoder*.onnx`, and `joiner*.onnx`.
+
+Override the runtime configuration when needed:
+
+| Variable                        | Purpose                                      |
+| ------------------------------- | -------------------------------------------- |
+| `YIER_SHERPA_ONNX_MODEL_DIR`    | Streaming transducer model directory         |
+| `YIER_SHERPA_ONNX_PROVIDER`     | sherpa-onnx execution provider; default `cpu` |
+| `YIER_SHERPA_ONNX_NUM_THREADS`  | Decoder threads; default `2`                 |
+
+Remote mobile browsers require HTTPS for microphone permission. Localhost is
+also treated as a secure context by modern browsers.
+
 ## Development
 
 Source development requires Python 3.12+, Node.js 20+, `uv`, and `pnpm`:

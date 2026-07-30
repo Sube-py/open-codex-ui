@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
 import signal
@@ -28,11 +28,13 @@ from yier_web.routes import (
     ConfigController,
     EventsController,
     HealthController,
+    SpeechController,
     SystemController,
 )
 from yier_web.routes.core import (
     wait_for_event_stream_item as wait_for_event_stream_item,
 )
+from yier_web.speech import SpeechRecognitionService
 
 
 @dataclass(slots=True)
@@ -43,6 +45,9 @@ class AppServices:
     frontend_service: FrontendService
     directory_picker_service: LocalDirectoryPickerService
     auth_service: AuthService
+    speech_service: SpeechRecognitionService = field(
+        default_factory=SpeechRecognitionService
+    )
 
 
 def _env_flag(name: str) -> bool:
@@ -130,6 +135,7 @@ def build_services(
         ),
         directory_picker_service=LocalDirectoryPickerService(),
         auth_service=AuthService(),
+        speech_service=SpeechRecognitionService(),
     )
 
 
@@ -141,6 +147,7 @@ api_router = Router(
         ConfigController,
         SystemController,
         CodexController,
+        SpeechController,
         EventsController,
     ],
 )
@@ -204,6 +211,7 @@ def create_app(
         app.state.frontend_service = app_services.frontend_service
         app.state.directory_picker_service = app_services.directory_picker_service
         app.state.auth_service = app_services.auth_service
+        app.state.speech_service = app_services.speech_service
         await app_services.codex_ipc_manager.start()
         try:
             yield

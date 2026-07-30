@@ -144,6 +144,9 @@ class AuthService:
         return hmac.compare_digest((token or "").strip(), self._codex_embed_token)
 
     def is_codex_websocket_authorized(self, connection: Any) -> bool:
+        return self.is_websocket_authorized(connection)
+
+    def is_websocket_authorized(self, connection: Any) -> bool:
         if not self.enabled:
             return True
         if self._is_authenticated_cookie(getattr(connection, "cookies", {})):

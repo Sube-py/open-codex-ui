@@ -56,6 +56,24 @@ describe('CodexComposer', () => {
     }))
   })
 
+  it('places voice input beside the primary send action', () => {
+    const wrapper = mountCodexComposer({
+      modelValue: '',
+      disabled: false,
+      busy: false,
+      isWorking: false,
+      mode: buildMode,
+      queuedFollowups: [],
+      state: { id: 'thread-1', turns: [] },
+    })
+
+    const speechButton = wrapper.get('[data-codex-speech-input]')
+    const sendButton = wrapper.get('[data-codex-primary-submit]')
+
+    expect(speechButton.attributes('aria-label')).toBe('Hold to speak')
+    expect(speechButton.element.nextElementSibling).toBe(sendButton.element)
+  })
+
   it('sends the selected model and reasoning effort with the prompt', async () => {
     const wrapper = mountCodexComposer({
       modelValue: 'Build the UI',

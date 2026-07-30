@@ -14,6 +14,7 @@ from granian import Granian, loops
 from granian.constants import Interfaces
 
 from yier_web.daemon import DaemonManager, UvToolUpdater, load_service_environment
+from yier_web.speech_models import SpeechModelError, SpeechModelManager
 from yier_web.system_services import ServiceError
 from yier_web.tunnel import DEFAULT_ORIGIN, TunnelError, TunnelManager
 
@@ -155,6 +156,18 @@ def main(argv: list[str] | None = None) -> int:
             if args.tunnel_command == "stop":
                 return manager.stop()
         except (OSError, TunnelError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+    if args.command == "speech":
+        try:
+            manager = SpeechModelManager(models_dir=args.models_dir)
+            if args.speech_command == "install":
+                return manager.install(force=args.force)
+            if args.speech_command == "status":
+                return manager.status()
+            if args.speech_command == "remove":
+                return manager.remove()
+        except (OSError, SpeechModelError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 1
 
@@ -315,6 +328,33 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     tunnel_subparsers.add_parser("status", help="show tunnel status")
     tunnel_subparsers.add_parser("stop", help="stop the managed tunnel")
+
+    speech_parser = subparsers.add_parser(
+        "speech",
+        help="manage the local speech recognition model",
+        description="Install and manage the sherpa-onnx streaming speech model.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    speech_parser.add_argument(
+        "--models-dir",
+        type=Path,
+        help="model storage directory (defaults to ~/.yier/models)",
+    )
+    speech_subparsers = speech_parser.add_subparsers(
+        dest="speech_command",
+        required=True,
+    )
+    speech_install_parser = speech_subparsers.add_parser(
+        "install",
+        help="download and install the standard bilingual model",
+    )
+    speech_install_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="download and replace an existing standard model",
+    )
+    speech_subparsers.add_parser("status", help="show speech model status")
+    speech_subparsers.add_parser("remove", help="remove the standard speech model")
     return parser
 
 
