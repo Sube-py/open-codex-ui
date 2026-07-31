@@ -15,6 +15,7 @@ import {
 import { useCodexMarkdown } from '../lib/markdown'
 import { summarizeToolActivity, type ToolActivitySummary } from '../lib/toolActivitySummary'
 import { userMessageDisplayText } from '../lib/userMessage'
+import CodexConversationError from './CodexConversationError.vue'
 import CodexThinkingShimmer from './CodexThinkingShimmer.vue'
 import CodexWorkedLabel from './CodexWorkedLabel.vue'
 
@@ -27,9 +28,9 @@ const emit = defineEmits<{
   copyError: [message: string]
 }>()
 
-type ConversationItemKind = 'user' | 'assistant' | 'work' | 'system' | 'unknown'
-type TurnBlockKind = 'user' | 'work' | 'assistant' | 'system' | 'unknown'
-type WorkRenderUnitKind = 'message' | 'activity' | 'todo' | 'context' | 'image'
+type ConversationItemKind = 'user' | 'assistant' | 'work' | 'system' | 'error' | 'unknown'
+type TurnBlockKind = 'user' | 'work' | 'assistant' | 'system' | 'error' | 'unknown'
+type WorkRenderUnitKind = 'message' | 'reasoning' | 'activity' | 'todo' | 'context' | 'image'
 
 interface ConversationItemView {
   id: string
@@ -110,6 +111,7 @@ const workItemTypes = new Set([
 
 const responseItemTypes = new Set(['agentMessage', 'plan'])
 const userItemTypes = new Set(['userMessage'])
+const errorItemTypes = new Set(['error'])
 const turnVirtualizationThreshold = 30
 const initialHydratedTurnCount = 12
 const estimatedTurnHeightPx = 720
@@ -362,6 +364,9 @@ function itemKind(item: JsonRecord): ConversationItemKind {
   if (workItemTypes.has(type)) {
     return 'work'
   }
+  if (errorItemTypes.has(type)) {
+    return 'error'
+  }
   return 'unknown'
 }
 
@@ -372,6 +377,15 @@ function turnItems(turn: CodexTurnState) {
 function turnView(turn: CodexTurnState, index: number): TurnView {
   const rawItems = turnItems(turn)
   const finalAssistantIndex = finalAssistantItemIndex(rawItems)
+  const latestReasoningItem =
+    isTurnInProgress(turn) && finalAssistantIndex < 0
+      ? (rawItems[
+          findLastIndex(
+            rawItems,
+            (item) => itemType(item) === 'reasoning' && Boolean(itemText(item)),
+          )
+        ] ?? null)
+      : null
   const hasReviewMode = rawItems.some(isReviewModeItem)
   const blocks: TurnBlockView[] = []
   const allWorkItems: ConversationItemView[] = []
@@ -388,7 +402,7 @@ function turnView(turn: CodexTurnState, index: number): TurnView {
       id: `${turnKey(turn, index)}-work-${workBlockIndex}`,
       kind: 'work',
       items,
-      workUnits: workRenderUnits(items),
+      workUnits: workRenderUnits(items, latestReasoningItem),
     })
     pendingWork = []
     workBlockIndex += 1
@@ -405,9 +419,10 @@ function turnView(turn: CodexTurnState, index: number): TurnView {
 
   rawItems.forEach((item, itemIndex) => {
     const baseKind = itemKind(item)
+    const projectedItem = baseKind === 'error' ? projectErrorItem(item) : item
     const view: ConversationItemView = {
       id: `${turnKey(turn, index)}-item-${itemIndex}-${itemId(item, itemIndex)}`,
-      item,
+      item: projectedItem,
       kind: baseKind,
     }
 
@@ -423,6 +438,23 @@ function turnView(turn: CodexTurnState, index: number): TurnView {
     if (baseKind === 'system') {
       flushWork()
       blocks.push({ id: view.id, kind: 'system', items: [view] })
+      return
+    }
+
+    if (baseKind === 'error') {
+      flushWork()
+      const previousBlock = blocks[blocks.length - 1]
+      const previousItem = previousBlock?.items[previousBlock.items.length - 1]?.item
+      if (
+        reconnectProgress(projectedItem) != null &&
+        previousBlock?.kind === 'error' &&
+        previousItem != null &&
+        reconnectProgress(previousItem) != null
+      ) {
+        previousBlock.items = [view]
+        return
+      }
+      blocks.push({ id: view.id, kind: 'error', items: [view] })
       return
     }
 
@@ -505,6 +537,40 @@ function itemType(item: JsonRecord) {
   return typeof item.type === 'string' && item.type ? item.type : 'unknown'
 }
 
+function projectErrorItem(item: JsonRecord) {
+  const progress = reconnectProgress(item)
+  if (!progress || (item.reconnectAttempt != null && item.reconnectMaxAttempts != null)) {
+    return item
+  }
+  return {
+    ...item,
+    reconnectAttempt: progress.attempt,
+    reconnectMaxAttempts: progress.maxAttempts,
+  }
+}
+
+function reconnectProgress(item: JsonRecord) {
+  if (item.willRetry !== true) {
+    return null
+  }
+  const attempt = positiveInteger(item.reconnectAttempt)
+  const maxAttempts = positiveInteger(item.reconnectMaxAttempts)
+  if (attempt != null && maxAttempts != null) {
+    return { attempt, maxAttempts }
+  }
+  const message = typeof item.message === 'string' ? item.message.trim() : ''
+  const match = /^Reconnecting(?:\.\.\.)?\s+(\d+)\/(\d+)$/.exec(message)
+  if (!match) {
+    return null
+  }
+  const parsedAttempt = Number(match[1])
+  const parsedMaxAttempts = Number(match[2])
+  if (parsedAttempt < 1 || parsedMaxAttempts < 1) {
+    return null
+  }
+  return { attempt: parsedAttempt, maxAttempts: parsedMaxAttempts }
+}
+
 function isSteeringMessageType(type: string) {
   return type === 'steer' || type === 'steeringUserMessage'
 }
@@ -534,6 +600,10 @@ function firstNumber(...values: unknown[]) {
     }
   }
   return null
+}
+
+function positiveInteger(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null
 }
 
 function coerceMs(value: number | null | undefined) {
@@ -624,7 +694,10 @@ function setImagePreviewVisible(itemId: string, visible: boolean) {
   }
 }
 
-function workRenderUnits(items: ConversationItemView[]): WorkRenderUnit[] {
+function workRenderUnits(
+  items: ConversationItemView[],
+  latestReasoningItem: JsonRecord | null,
+): WorkRenderUnit[] {
   const units: WorkRenderUnit[] = []
   let activityItems: ConversationItemView[] = []
   let activityIndex = 0
@@ -633,12 +706,25 @@ function workRenderUnits(items: ConversationItemView[]): WorkRenderUnit[] {
     if (!activityItems.length) {
       return
     }
-    units.push({
-      id: `${activityItems[0]?.id ?? 'activity'}-activity-${activityIndex}`,
-      kind: 'activity',
-      items: activityItems,
-      summary: summarizeToolActivity(activityItems.map((item) => item.item)),
-    })
+    const previousUnit = units[units.length - 1]
+    const precedingUnit = units[units.length - 2]
+    const activityUnit =
+      previousUnit?.kind === 'activity'
+        ? previousUnit
+        : previousUnit?.kind === 'reasoning' && precedingUnit?.kind === 'activity'
+          ? precedingUnit
+          : null
+    if (activityUnit) {
+      activityUnit.items.push(...activityItems)
+      activityUnit.summary = summarizeToolActivity(activityUnit.items.map((item) => item.item))
+    } else {
+      units.push({
+        id: `${activityItems[0]?.id ?? 'activity'}-activity-${activityIndex}`,
+        kind: 'activity',
+        items: activityItems,
+        summary: summarizeToolActivity(activityItems.map((item) => item.item)),
+      })
+    }
     activityItems = []
     activityIndex += 1
   }
@@ -646,6 +732,11 @@ function workRenderUnits(items: ConversationItemView[]): WorkRenderUnit[] {
   for (const item of items) {
     const type = itemType(item.item)
     if (type === 'reasoning') {
+      if (item.item !== latestReasoningItem) {
+        continue
+      }
+      flushActivity()
+      units.push({ id: item.id, kind: 'reasoning', items: [item] })
       continue
     }
     if (type === 'agentMessage' || type === 'plan') {
@@ -673,7 +764,7 @@ function workRenderUnits(items: ConversationItemView[]): WorkRenderUnit[] {
 }
 
 function workUnitsForBlock(block: TurnBlockView) {
-  return block.workUnits ?? workRenderUnits(block.items)
+  return block.workUnits ?? workRenderUnits(block.items, null)
 }
 
 function hasFinalAssistantResponse(turnView: TurnView) {
@@ -681,7 +772,20 @@ function hasFinalAssistantResponse(turnView: TurnView) {
 }
 
 function shouldShowStandaloneThinking(turnView: TurnView) {
-  return isTurnInProgress(turnView.turn) && !hasFinalAssistantResponse(turnView)
+  return (
+    isTurnInProgress(turnView.turn) &&
+    !hasFinalAssistantResponse(turnView) &&
+    !hasVisibleTurnActivity(turnView)
+  )
+}
+
+function hasVisibleTurnActivity(turnView: TurnView) {
+  return turnView.blocks.some((block) => {
+    if (block.kind === 'error') {
+      return true
+    }
+    return block.kind === 'work' && workUnitsForBlock(block).length > 0
+  })
 }
 
 function isTodoListItem(item: JsonRecord) {
@@ -717,7 +821,7 @@ function itemText(item: JsonRecord) {
     return firstString(item.text, item.content)
   }
   if (type === 'reasoning') {
-    return firstString(outputText(item.summary), outputText(item.content), item.text)
+    return firstString(reasoningText(item.summary), item.text)
   }
   if (type === 'commandExecution') {
     return commandOutput(item)
@@ -779,6 +883,32 @@ function itemText(item: JsonRecord) {
     return 'Sleeping'
   }
   return firstString(item.text, outputText(item.content), outputText(item.input))
+}
+
+function reasoningText(value: unknown) {
+  const parts = Array.isArray(value) ? value : [value]
+  for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+    const lines = outputText(parts[partIndex]).trimEnd().split(/\r?\n/)
+    for (let lineIndex = lines.length - 1; lineIndex >= 0; lineIndex -= 1) {
+      const line = lines[lineIndex]?.trim() ?? ''
+      if (line && !isReasoningComment(line)) {
+        return line
+      }
+    }
+  }
+  return ''
+}
+
+function isReasoningComment(value: string) {
+  let remaining = value
+  while (remaining.startsWith('<!--')) {
+    const commentEnd = remaining.indexOf('-->')
+    if (commentEnd < 0) {
+      return true
+    }
+    remaining = remaining.slice(commentEnd + 3).trimStart()
+  }
+  return !remaining || '<!--'.startsWith(remaining)
 }
 
 function rawUserMessageText(item: JsonRecord) {
@@ -1624,6 +1754,14 @@ const justDebug = false
                 ></div>
 
                 <div
+                  v-else-if="unit.kind === 'reasoning'"
+                  class="markdown-prose markdown-prose-conversation min-w-0 py-0.5 text-sm text-[color:var(--app-text-soft)] [overflow-wrap:anywhere] [&_*]:text-[color:var(--app-text-soft)] [&>:first-child]:mt-0 [&>:last-child]:mb-0"
+                  data-codex-reasoning-summary
+                  v-html="renderMarkdown(itemText(unit.items[0]?.item ?? {}))"
+                  @click="onMarkdownClick"
+                ></div>
+
+                <div
                   v-else-if="unit.kind === 'activity'"
                   class="grid min-w-0 gap-1 py-0.5 text-sm text-[color:var(--app-text-soft)]"
                   data-codex-work-activity
@@ -1976,6 +2114,14 @@ const justDebug = false
               </div>
             </template>
           </article>
+
+          <div v-else-if="block.kind === 'error'" class="min-w-0">
+            <CodexConversationError
+              v-for="errorItem in block.items"
+              :key="errorItem.id"
+              :item="errorItem.item"
+            />
+          </div>
 
           <article
             v-else

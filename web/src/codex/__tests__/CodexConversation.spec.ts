@@ -118,9 +118,7 @@ describe('CodexConversation', () => {
     ])
 
     const image = wrapper.get('.markdown-prose img')
-    expect(image.attributes('src')).toBe(
-      `/api/codex/image?path=${encodeURIComponent(imagePath)}`,
-    )
+    expect(image.attributes('src')).toBe(`/api/codex/image?path=${encodeURIComponent(imagePath)}`)
     expect(image.attributes('alt')).toBe('imageView UI')
   })
 
@@ -153,7 +151,9 @@ describe('CodexConversation', () => {
         'max-sm:max-w-[96%]',
       ]),
     )
-    expect(bubble.classes()).toEqual(expect.arrayContaining(['min-w-0', 'w-full', 'overflow-hidden']))
+    expect(bubble.classes()).toEqual(
+      expect.arrayContaining(['min-w-0', 'w-full', 'overflow-hidden']),
+    )
     expect(actions.element.parentElement).toBe(shell.element)
     expect(prose.classes()).toContain('[overflow-wrap:anywhere]')
     expect(wrapper.find('section').classes()).toEqual(
@@ -365,9 +365,7 @@ describe('CodexConversation', () => {
 
     const preview = wrapper.get('[data-codex-image-preview]')
     expect(wrapper.get('[data-codex-image-view]').text()).toBe('')
-    expect(preview.attributes('src')).toBe(
-      `/api/codex/image?path=${encodeURIComponent(imagePath)}`,
-    )
+    expect(preview.attributes('src')).toBe(`/api/codex/image?path=${encodeURIComponent(imagePath)}`)
     expect(wrapper.find('[data-codex-image-download]').exists()).toBe(false)
     expect(wrapper.find('[data-codex-image-open]').exists()).toBe(false)
     expect(wrapper.find('[data-codex-raw]').exists()).toBe(false)
@@ -460,7 +458,7 @@ describe('CodexConversation', () => {
     expect(wrapper.text()).not.toContain('second output')
   })
 
-  it('keeps in-progress work expanded and shows working elapsed time', () => {
+  it('shows only the latest reasoning summary without a duplicate thinking placeholder', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-05-21T00:00:03.000Z'))
 
@@ -470,7 +468,11 @@ describe('CodexConversation', () => {
           id: 'reasoning-1',
           type: 'reasoning',
           status: 'inProgress',
-          content: 'Inspecting the code',
+          summary: [
+            { type: 'summary_text', text: '**Inspecting the code**' },
+            { type: 'summary_text', text: '**Checking the tests**' },
+          ],
+          content: 'Hidden raw reasoning',
         },
       ],
       {
@@ -480,20 +482,275 @@ describe('CodexConversation', () => {
     )
 
     expect(wrapper.text()).toContain('Working for 3s')
-    expect(wrapper.text()).toContain('Thinking')
-    expect(wrapper.find('[data-codex-thinking-shimmer]').exists()).toBe(true)
-    expect(wrapper.find('[data-codex-thinking-placeholder]').exists()).toBe(true)
+    expect(wrapper.get('[data-codex-reasoning-summary]').text()).not.toContain(
+      'Inspecting the code',
+    )
+    expect(wrapper.get('[data-codex-reasoning-summary]').text()).toContain('Checking the tests')
+    expect(wrapper.get('[data-codex-reasoning-summary]').text()).not.toContain('****')
+    expect(wrapper.text()).not.toContain('Hidden raw reasoning')
+    expect(wrapper.text()).not.toContain('Thinking')
+    expect(wrapper.find('[data-codex-thinking-placeholder]').exists()).toBe(false)
     expect(wrapper.find('[data-codex-thinking-fallback]').exists()).toBe(false)
     const workToggle = wrapper.get('[data-codex-work-toggle]')
     expect(workToggle.text()).not.toContain('Thinking')
     expect(workToggle.attributes('aria-expanded')).toBe('true')
     expect(wrapper.find('[data-codex-work-item]').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('Inspecting the code')
-    expect(wrapper.html().indexOf('data-codex-work-section')).toBeLessThan(
-      wrapper.html().indexOf('data-codex-thinking-placeholder'),
-    )
 
     vi.useRealTimers()
+  })
+
+  it('hides reasoning summaries after the turn completes', () => {
+    const wrapper = mountConversation(
+      [
+        {
+          id: 'reasoning-1',
+          type: 'reasoning',
+          summary: [
+            { type: 'summary_text', text: 'Preparing the final response' },
+            { type: 'summary_text', text: 'Writing the final response' },
+          ],
+          status: 'completed',
+        },
+        {
+          id: 'command-1',
+          type: 'commandExecution',
+          command: 'pnpm test:unit',
+          status: 'completed',
+        },
+      ],
+      { status: 'completed' },
+    )
+
+    expect(wrapper.find('[data-codex-reasoning-summary]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Preparing the final response')
+    expect(wrapper.text()).not.toContain('Writing the final response')
+  })
+
+  it('hides reasoning summaries as soon as the final answer starts', () => {
+    const wrapper = mountConversation(
+      [
+        {
+          id: 'reasoning-1',
+          type: 'reasoning',
+          summary: 'Preparing the final response',
+          status: 'completed',
+        },
+        {
+          id: 'agent-final-1',
+          type: 'agentMessage',
+          phase: 'final_answer',
+          text: 'The response is ready.',
+        },
+      ],
+      { status: 'in_progress' },
+    )
+
+    expect(wrapper.find('[data-codex-reasoning-summary]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Preparing the final response')
+    expect(wrapper.get('[data-codex-assistant-message]').text()).toContain(
+      'The response is ready.',
+    )
+  })
+
+  it('replaces consecutive reasoning summaries with the latest update', () => {
+    const wrapper = mountConversation(
+      [
+        {
+          id: 'reasoning-1',
+          type: 'reasoning',
+          summary: 'Investigating error grouping',
+          status: 'completed',
+        },
+        {
+          id: 'reasoning-2',
+          type: 'reasoning',
+          summary: 'Designing retry aggregation',
+          status: 'completed',
+        },
+        {
+          id: 'reasoning-3',
+          type: 'reasoning',
+          summary: 'Grouping consecutive retry errors',
+          status: 'inProgress',
+        },
+      ],
+      { status: 'in_progress' },
+    )
+
+    const summaries = wrapper.findAll('[data-codex-reasoning-summary]')
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]?.text()).toContain('Grouping consecutive retry errors')
+    expect(wrapper.text()).not.toContain('Investigating error grouping')
+    expect(wrapper.text()).not.toContain('Designing retry aggregation')
+    expect(wrapper.find('[data-codex-thinking-placeholder]').exists()).toBe(false)
+  })
+
+  it('keeps only the latest reasoning summary across work block boundaries', () => {
+    const wrapper = mountConversation(
+      [
+        {
+          id: 'reasoning-1',
+          type: 'reasoning',
+          summary: 'Preparing to reconnect',
+          status: 'completed',
+        },
+        {
+          id: 'error-1',
+          type: 'error',
+          message: 'The response stream disconnected.',
+          willRetry: true,
+        },
+        {
+          id: 'reasoning-2',
+          type: 'reasoning',
+          summary: 'Continuing after reconnect',
+          status: 'inProgress',
+        },
+      ],
+      { status: 'in_progress' },
+    )
+
+    const summaries = wrapper.findAll('[data-codex-reasoning-summary]')
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]?.text()).toContain('Continuing after reconnect')
+    expect(wrapper.text()).not.toContain('Preparing to reconnect')
+  })
+
+  it('moves the latest reasoning summary across a tool activity boundary', () => {
+    const wrapper = mountConversation(
+      [
+        {
+          id: 'reasoning-1',
+          type: 'reasoning',
+          summary: 'Planning the test run',
+          status: 'completed',
+        },
+        {
+          id: 'command-1',
+          type: 'commandExecution',
+          command: 'pnpm test:unit',
+          status: 'completed',
+          completed: true,
+          output: { exitCode: 0 },
+        },
+        {
+          id: 'reasoning-2',
+          type: 'reasoning',
+          summary: 'Reviewing the test results',
+          status: 'inProgress',
+        },
+      ],
+      { status: 'in_progress' },
+    )
+
+    const summaries = wrapper.findAll('[data-codex-reasoning-summary]')
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]?.text()).toContain('Reviewing the test results')
+    expect(wrapper.text()).not.toContain('Planning the test run')
+    expect(wrapper.html().indexOf('data-codex-work-activity')).toBeLessThan(
+      wrapper.html().indexOf('Reviewing the test results'),
+    )
+  })
+
+  it('groups tools across reasoning updates into one semantic activity summary', async () => {
+    const wrapper = mountConversation(
+      [
+        {
+          id: 'read-1',
+          type: 'commandExecution',
+          command: 'rg reasoning web/src/codex',
+          commandActions: [{ type: 'search', query: 'reasoning', path: 'web/src/codex' }],
+          status: 'completed',
+          output: { exitCode: 0 },
+        },
+        {
+          id: 'reasoning-1',
+          type: 'reasoning',
+          summary: 'Reviewing the conversation projector',
+          status: 'completed',
+        },
+        {
+          id: 'command-1',
+          type: 'commandExecution',
+          command: 'pnpm test:unit --run',
+          status: 'completed',
+          output: { exitCode: 0 },
+        },
+        {
+          id: 'reasoning-2',
+          type: 'reasoning',
+          summary: 'Validating grouped tool activity',
+          status: 'inProgress',
+        },
+        {
+          id: 'command-2',
+          type: 'commandExecution',
+          command: 'git diff --check',
+          status: 'completed',
+          output: { exitCode: 0 },
+        },
+      ],
+      { status: 'in_progress' },
+    )
+
+    expect(wrapper.findAll('[data-codex-work-activity]')).toHaveLength(1)
+    expect(wrapper.get('[data-codex-activity-toggle]').text()).toContain('Read files and ran commands')
+    expect(wrapper.findAll('[data-codex-reasoning-summary]')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('Reviewing the conversation projector')
+    expect(wrapper.get('[data-codex-reasoning-summary]').text()).toContain(
+      'Validating grouped tool activity',
+    )
+
+    await wrapper.get('[data-codex-activity-toggle]').trigger('click')
+
+    expect(wrapper.findAll('[data-codex-work-row]')).toHaveLength(3)
+  })
+
+  it('keeps assistant commentary as a tool activity group boundary', () => {
+    const wrapper = mountConversation(
+      [
+        {
+          id: 'read-1',
+          type: 'commandExecution',
+          command: 'rg activity web/src/codex',
+          commandActions: [{ type: 'search', query: 'activity', path: 'web/src/codex' }],
+          status: 'completed',
+        },
+        {
+          id: 'reasoning-1',
+          type: 'reasoning',
+          summary: 'Checking the first tool phase',
+          status: 'completed',
+        },
+        {
+          id: 'command-1',
+          type: 'commandExecution',
+          command: 'pnpm test:unit',
+          status: 'completed',
+        },
+        {
+          id: 'commentary-1',
+          type: 'agentMessage',
+          phase: 'commentary',
+          text: 'The first phase is complete.',
+        },
+        {
+          id: 'command-2',
+          type: 'commandExecution',
+          command: 'pnpm build',
+          status: 'completed',
+        },
+      ],
+      { status: 'in_progress' },
+    )
+
+    const activityRows = wrapper.findAll('[data-codex-work-activity]')
+    expect(activityRows).toHaveLength(2)
+    expect(activityRows[0]?.text()).toContain('Read files and ran a command')
+    expect(activityRows[1]?.text()).toContain('Ran a command')
+    expect(wrapper.get('[data-codex-work-message]').text()).toContain(
+      'The first phase is complete.',
+    )
   })
 
   it('shows a thinking placeholder while a turn is running before work items arrive', () => {
@@ -593,11 +850,42 @@ describe('CodexConversation', () => {
     expect(activityToggle.text()).toContain('Running pnpm build')
     expect(activityToggle.get('[data-codex-activity-icon]').classes()).toContain('pi-terminal')
     expect(activityToggle.find('[data-codex-thinking-shimmer]').exists()).toBe(true)
+    expect(wrapper.find('[data-codex-thinking-placeholder]').exists()).toBe(false)
 
     await activityToggle.trigger('click')
     expect(wrapper.get('[data-codex-work-row]').text()).toContain('Running pnpm build')
     await wrapper.get('[data-codex-work-row]').trigger('click')
     expect(wrapper.get('[data-codex-command-output]').text()).toContain('building...')
+  })
+
+  it('shows reasoning before the tool activity that follows it', () => {
+    const wrapper = mountConversation(
+      [
+        {
+          id: 'reasoning-1',
+          type: 'reasoning',
+          summary: 'Checking the reconnect lifecycle',
+          status: 'completed',
+        },
+        {
+          id: 'command-1',
+          type: 'commandExecution',
+          command: 'pnpm test:unit',
+          status: 'running',
+          completed: false,
+        },
+      ],
+      { status: 'in_progress' },
+    )
+
+    expect(wrapper.get('[data-codex-reasoning-summary]').text()).toContain(
+      'Checking the reconnect lifecycle',
+    )
+    expect(wrapper.get('[data-codex-activity-toggle]').text()).toContain('Running pnpm test:unit')
+    expect(wrapper.find('[data-codex-thinking-placeholder]').exists()).toBe(false)
+    expect(wrapper.html().indexOf('data-codex-reasoning-summary')).toBeLessThan(
+      wrapper.html().indexOf('data-codex-work-activity'),
+    )
   })
 
   it('summarizes adjacent tool activities behind one compact disclosure', async () => {
@@ -1235,6 +1523,93 @@ describe('CodexConversation', () => {
     expect(raw.text()).toContain('"ok": true')
   })
 
+  it('renders terminal conversation errors as readable inline messages', () => {
+    const wrapper = mountConversation([
+      {
+        id: 'error-1',
+        type: 'error',
+        message: 'Selected model is at capacity. Please try a different model.',
+        willRetry: false,
+        errorInfo: 'serverOverloaded',
+        additionalDetails: null,
+      },
+    ])
+
+    const error = wrapper.get('[data-codex-conversation-error]')
+    expect(error.text()).toContain('Selected model is at capacity. Please try a different model.')
+    expect(error.attributes('data-codex-error-retrying')).toBeUndefined()
+    expect(wrapper.find('[data-codex-unknown-item]').exists()).toBe(false)
+    expect(wrapper.find('[data-codex-raw]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('error-1')
+    expect(wrapper.text()).not.toContain('serverOverloaded')
+  })
+
+  it('renders retrying stream errors with progress and expandable details', async () => {
+    const wrapper = mountConversation(
+      [
+        {
+          id: 'error-1',
+          type: 'error',
+          message: 'The response stream disconnected.',
+          willRetry: true,
+          errorInfo: 'serverOverloaded',
+          reconnectAttempt: 2,
+          reconnectMaxAttempts: 5,
+          additionalDetails: 'Request failed with HTTP 429.',
+        },
+      ],
+      { status: 'in_progress' },
+    )
+
+    expect(wrapper.get('[data-codex-error-summary]').text()).toBe(
+      'Server is busy, reconnecting 2/5',
+    )
+    expect(wrapper.find('[data-codex-thinking-placeholder]').exists()).toBe(false)
+    expect(wrapper.find('[data-codex-error-details]').exists()).toBe(false)
+
+    await wrapper.get('[data-codex-error-details-toggle]').trigger('click')
+
+    expect(wrapper.get('[data-codex-error-details]').text()).toContain(
+      'Request failed with HTTP 429.',
+    )
+  })
+
+  it('projects reconnect attempts into one completed status row', () => {
+    const wrapper = mountConversation(
+      Array.from({ length: 5 }, (_, index) => ({
+        id: `error-${index + 1}`,
+        type: 'error',
+        message: `Reconnecting... ${index + 1}/5`,
+        willRetry: true,
+        errorInfo: 'responseStreamDisconnected',
+        additionalDetails: `Attempt ${index + 1} failed.`,
+      })),
+      { status: 'completed' },
+    )
+
+    const errors = wrapper.findAll('[data-codex-conversation-error]')
+    expect(errors).toHaveLength(1)
+    expect(wrapper.get('[data-codex-error-summary]').text()).toBe('Reconnecting 5/5')
+    expect(wrapper.find('[data-codex-conversation-error] .pi-wifi').exists()).toBe(true)
+    expect(wrapper.find('.pi-spin').exists()).toBe(false)
+    expect(wrapper.findAll('[data-codex-error-details-toggle]')).toHaveLength(1)
+  })
+
+  it('renders generic retrying errors without exposing their envelope', () => {
+    const wrapper = mountConversation([
+      {
+        id: 'error-1',
+        type: 'error',
+        message: 'Response interrupted.',
+        willRetry: true,
+        errorInfo: 'responseStreamDisconnected',
+      },
+    ])
+
+    expect(wrapper.get('[data-codex-error-summary]').text()).toBe('Reconnecting')
+    expect(wrapper.find('[data-codex-raw]').exists()).toBe(false)
+  })
+
   it('ignores null turn items from persisted conversation state', () => {
     const wrapper = mountConversation([
       null as unknown as Record<string, unknown>,
@@ -1336,7 +1711,9 @@ describe('CodexConversation', () => {
   })
 
   it('virtualizes long conversations at the turn level', async () => {
-    const turns = Array.from({ length: 80 }, (_, index): CodexTurnState => ({
+    const turns = Array.from(
+      { length: 80 },
+      (_, index): CodexTurnState => ({
         turnId: `turn-${index + 1}`,
         status: 'completed',
         turnStartedAtMs: 1_700_000_000_000 + index,
@@ -1352,7 +1729,8 @@ describe('CodexConversation', () => {
             text: `Answer ${index + 1}`,
           },
         ],
-    }))
+      }),
+    )
     const wrapper = mount(CodexConversation, {
       props: {
         state: {
@@ -1373,7 +1751,9 @@ describe('CodexConversation', () => {
     await flushScrollWatchers()
 
     const initialTurns = wrapper.findAll('[data-codex-turn]')
-    expect(wrapper.get('[data-codex-virtualized-turns]').attributes('data-codex-virtualized-turns')).toBe('true')
+    expect(
+      wrapper.get('[data-codex-virtualized-turns]').attributes('data-codex-virtualized-turns'),
+    ).toBe('true')
     expect(initialTurns.length).toBeGreaterThan(0)
     expect(initialTurns.length).toBeLessThan(80)
     expect(wrapper.find('[data-codex-turn-bottom-spacer]').exists()).toBe(true)
@@ -1391,5 +1771,4 @@ describe('CodexConversation', () => {
     expect(wrapper.findAll('[data-codex-turn]').length).toBeLessThan(80)
     expect(wrapper.find('[data-codex-turn-top-spacer]').exists()).toBe(true)
   })
-
 })
