@@ -53,7 +53,7 @@ describe('summarizeToolActivity', () => {
         'searched the web',
         'called Generate Diagram',
       ],
-      text: 'Used Figma integration, edited files, read files, ran commands, searched the web, and called Generate Diagram',
+      text: 'Used Figma integration, edited files, read files, ran commands, searched the web, called Generate Diagram',
     })
     expect(summary.text).not.toMatch(/\b2\b/)
   })
@@ -115,6 +115,66 @@ describe('summarizeToolActivity', () => {
     ])
 
     expect(summary.icon).toBe('pi-globe')
-    expect(summary.text).toBe('Used the browser and loaded a tool')
+    expect(summary.text).toBe('Used the browser, loaded a tool')
+  })
+
+  it('restores browser attribution from projected Node REPL metadata', () => {
+    const summary = summarizeToolActivity([
+      {
+        type: 'mcpToolCall',
+        server: 'node_repl',
+        tool: 'js',
+        result: {
+          _meta: {
+            'codex/toolSurface': {
+              kind: 'browserUse',
+            },
+          },
+        },
+      },
+      {
+        type: 'commandExecution',
+        command: 'rg summary web/src',
+        commandActions: [{ type: 'search', query: 'summary', path: 'web/src' }],
+      },
+      {
+        type: 'commandExecution',
+        command: 'pnpm test:unit',
+      },
+    ])
+
+    expect(summary).toEqual({
+      active: false,
+      icon: 'pi-globe',
+      parts: ['Used the browser', 'read files', 'ran a command'],
+      text: 'Used the browser, read files, ran a command',
+    })
+  })
+
+  it('prefers the native tool source and recognizes active browser calls before metadata arrives', () => {
+    const completed = summarizeToolActivity([
+      {
+        type: 'mcpToolCall',
+        server: 'node_repl',
+        tool: 'js',
+        source: 'browser-use',
+      },
+    ])
+    const active = summarizeToolActivity([
+      {
+        type: 'mcpToolCall',
+        server: 'node_repl',
+        tool: 'js',
+        status: 'running',
+        arguments: {
+          title: 'Inspect the open page',
+          code: 'await tab.playwright.domSnapshot()',
+        },
+      },
+    ])
+
+    expect(completed.text).toBe('Used the browser')
+    expect(active.icon).toBe('pi-globe')
+    expect(active.text).toBe('Calling the browser / Js')
   })
 })

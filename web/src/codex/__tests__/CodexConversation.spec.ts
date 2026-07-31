@@ -746,7 +746,7 @@ describe('CodexConversation', () => {
 
     const activityRows = wrapper.findAll('[data-codex-work-activity]')
     expect(activityRows).toHaveLength(2)
-    expect(activityRows[0]?.text()).toContain('Read files and ran a command')
+    expect(activityRows[0]?.text()).toContain('Read files, ran a command')
     expect(activityRows[1]?.text()).toContain('Checking the first tool phase')
     expect(activityRows[1]?.text()).not.toContain('Ran a command')
     expect(wrapper.get('[data-codex-work-message]').text()).toContain(

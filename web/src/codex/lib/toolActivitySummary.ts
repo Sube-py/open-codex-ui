@@ -40,7 +40,7 @@ export function summarizeToolActivity(items: JsonRecord[]): ToolActivitySummary 
     active: false,
     icon: parts[0]?.icon ?? 'pi-sparkles',
     parts: textParts,
-    text: formatSummaryList(textParts),
+    text: formatUnitList(textParts),
   }
 }
 
@@ -79,11 +79,11 @@ function completedSummaryParts(items: JsonRecord[]): SummaryPart[] {
         webSearches += 1
         break
       case 'mcpToolCall': {
-        const server = mcpServerName(item)
-        if (isNodeReplServer(server)) {
+        const source = mcpSourceName(item)
+        if (isNodeReplServer(source)) {
           commands += 1
-        } else if (server) {
-          integrationNames.add(integrationDisplayName(server))
+        } else if (source) {
+          integrationNames.add(integrationDisplayName(source))
         } else {
           unnamedToolCalls += 1
         }
@@ -116,7 +116,7 @@ function completedSummaryParts(items: JsonRecord[]): SummaryPart[] {
   if (integrationNames.size) {
     const names = [...integrationNames]
     const hasBrowser = names.includes('the browser')
-    const sourceList = formatSummaryList(names)
+    const sourceList = formatConjunctionList(names)
     parts.push({
       icon: hasBrowser ? 'pi-globe' : 'pi-box',
       text: hasBrowser
@@ -191,11 +191,11 @@ function activeSummaryPart(item: JsonRecord): SummaryPart {
     }
   }
   if (type === 'mcpToolCall') {
-    const server = mcpServerName(item)
+    const source = mcpSourceName(item)
     const name = humanizeName(toolName(item))
     return {
-      icon: isBrowserSource(server) ? 'pi-globe' : 'pi-box',
-      text: `Calling ${server ? `${integrationDisplayName(server)} / ` : ''}${name}`,
+      icon: isBrowserSource(source) ? 'pi-globe' : 'pi-box',
+      text: `Calling ${source ? `${integrationDisplayName(source)} / ` : ''}${name}`,
     }
   }
   if (type === 'dynamicToolCall') {
@@ -266,6 +266,53 @@ function mcpServerName(item: JsonRecord) {
   return firstString(item.server, item.serverName, invocation?.server)
 }
 
+function mcpSourceName(item: JsonRecord) {
+  const source = isRecord(item.source) ? item.source : null
+  const declaredSource = firstString(
+    typeof item.source === 'string' ? item.source : null,
+    source?.key,
+    source?.name,
+  )
+  if (declaredSource) {
+    return declaredSource
+  }
+
+  const server = mcpServerName(item)
+  if (hasBrowserToolMetadata(item) || (isNodeReplServer(server) && hasBrowserInvocation(item))) {
+    return 'browser-use'
+  }
+  return server
+}
+
+function hasBrowserToolMetadata(item: JsonRecord) {
+  const result = isRecord(item.result) ? item.result : null
+  const metadata = isRecord(result?._meta) ? result._meta : null
+  if (!metadata) {
+    return false
+  }
+  const toolSurface = isRecord(metadata['codex/toolSurface'])
+    ? metadata['codex/toolSurface']
+    : null
+  return (
+    metadata['codex/browserUse'] === true ||
+    Object.prototype.hasOwnProperty.call(metadata, 'browser_use') ||
+    firstString(toolSurface?.kind).replace(/[-_]/g, '').toLowerCase() === 'browseruse'
+  )
+}
+
+function hasBrowserInvocation(item: JsonRecord) {
+  const args = isRecord(item.arguments) ? item.arguments : null
+  const code = firstString(args?.code)
+  const title = firstString(args?.title)
+  return (
+    /\bagent\.browsers\b/.test(code) ||
+    /\bbrowser(?:\.|[A-Z]\w*)/.test(code) ||
+    /\.(?:playwright|screenshot|dom_cua|cua)\b/.test(code) ||
+    /browser-client\.mjs/.test(code) ||
+    /\bbrowser\b/i.test(title)
+  )
+}
+
 function toolName(item: JsonRecord) {
   const invocation = isRecord(item.invocation) ? item.invocation : null
   return firstString(item.tool, item.name, item.functionName, invocation?.tool) || 'tool'
@@ -315,7 +362,7 @@ function isBrowserSource(server: string) {
 }
 
 function isNodeReplServer(server: string) {
-  return server.replace(/[-_]/g, '').toLowerCase() === 'noderepl'
+  return server.replace(/^server:/i, '').replace(/[-_]/g, '').toLowerCase() === 'noderepl'
 }
 
 function isSkillDefinitionPath(path: string) {
@@ -359,7 +406,7 @@ function pushCountPart(
   }
 }
 
-function formatSummaryList(parts: string[]) {
+function formatConjunctionList(parts: string[]) {
   if (parts.length <= 1) {
     return parts[0] ?? 'Worked'
   }
@@ -367,6 +414,10 @@ function formatSummaryList(parts: string[]) {
     return `${parts[0]} and ${parts[1]}`
   }
   return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`
+}
+
+function formatUnitList(parts: string[]) {
+  return parts.length ? parts.join(', ') : 'Worked'
 }
 
 function lowerFirst(value: string) {
