@@ -104,6 +104,7 @@ const todoExpanded = ref(false)
 const speechDraftBase = ref('')
 let speechPointerId: number | null = null
 let speechKeyboardActive = false
+let speechShortcutActive = false
 const speech = useStreamingSpeech({
   onTranscript(text) {
     draft.value = appendSpeechTranscript(speechDraftBase.value, text)
@@ -328,7 +329,7 @@ const statusDetails = computed(() => {
 watch(
   () => props.state?.id,
   () => {
-    speech.dispose()
+    cancelSpeechInput()
     selectedModel.value = ''
     selectedReasoningEffort.value = ''
     addMenuOpen.value = false
@@ -441,7 +442,12 @@ async function beginSpeechInput() {
 }
 
 function startSpeechPointer(event: PointerEvent) {
-  if (event.button !== 0 || speechPointerId !== null) {
+  if (
+    event.button !== 0 ||
+    speechPointerId !== null ||
+    speechKeyboardActive ||
+    speechShortcutActive
+  ) {
     return
   }
   event.preventDefault()
@@ -473,7 +479,13 @@ function stopSpeechOnLostPointerCapture(event: PointerEvent) {
 }
 
 function startSpeechKeyboard(event: KeyboardEvent) {
-  if ((event.key !== ' ' && event.key !== 'Enter') || event.repeat || speechKeyboardActive) {
+  if (
+    (event.key !== ' ' && event.key !== 'Enter') ||
+    event.repeat ||
+    speechKeyboardActive ||
+    speechPointerId !== null ||
+    speechShortcutActive
+  ) {
     return
   }
   event.preventDefault()
@@ -490,9 +502,53 @@ function stopSpeechKeyboard(event: KeyboardEvent) {
   speech.stop()
 }
 
+function isSpeechShortcut(event: KeyboardEvent) {
+  return (
+    event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    event.code === 'KeyS' &&
+    !event.isComposing
+  )
+}
+
+function startSpeechShortcut(event: KeyboardEvent) {
+  if (!isSpeechShortcut(event)) {
+    return false
+  }
+  event.preventDefault()
+  if (
+    event.repeat ||
+    speechShortcutActive ||
+    speechPointerId !== null ||
+    speechKeyboardActive ||
+    props.disabled ||
+    props.busy ||
+    speech.state.value !== 'idle'
+  ) {
+    return true
+  }
+  speechShortcutActive = true
+  void beginSpeechInput()
+  return true
+}
+
+function stopSpeechShortcut(event: KeyboardEvent) {
+  if (
+    !speechShortcutActive ||
+    (event.code !== 'KeyS' && event.key !== 'Alt')
+  ) {
+    return
+  }
+  event.preventDefault()
+  speechShortcutActive = false
+  speech.stop()
+}
+
 function cancelSpeechInput() {
   speechPointerId = null
   speechKeyboardActive = false
+  speechShortcutActive = false
   speech.dispose()
 }
 
@@ -577,6 +633,9 @@ function onDocumentClick(event: MouseEvent) {
 }
 
 function onDocumentKeydown(event: KeyboardEvent) {
+  if (startSpeechShortcut(event)) {
+    return
+  }
   if (handleSlashMenuKeydown(event)) {
     return
   }
@@ -1032,6 +1091,8 @@ function removeFileAttachment(index: number) {
 onMounted(() => {
   window.addEventListener('resize', repositionOpenMenus)
   window.addEventListener('scroll', repositionOpenMenus, true)
+  window.addEventListener('blur', cancelSpeechInput)
+  window.addEventListener('keyup', stopSpeechShortcut, true)
   window.addEventListener('pagehide', cancelSpeechInput)
   document.addEventListener('click', onDocumentClick)
   document.addEventListener('keydown', onDocumentKeydown, true)
@@ -1042,6 +1103,8 @@ onBeforeUnmount(() => {
   cancelSpeechInput()
   window.removeEventListener('resize', repositionOpenMenus)
   window.removeEventListener('scroll', repositionOpenMenus, true)
+  window.removeEventListener('blur', cancelSpeechInput)
+  window.removeEventListener('keyup', stopSpeechShortcut, true)
   window.removeEventListener('pagehide', cancelSpeechInput)
   document.removeEventListener('click', onDocumentClick)
   document.removeEventListener('keydown', onDocumentKeydown, true)
@@ -2079,6 +2142,7 @@ function goalProgressText(goal: CodexThreadGoal | null) {
               "
               :disabled="busy || disabled || speech.state.value === 'stopping'"
               :aria-label="speechButtonLabel"
+              aria-keyshortcuts="Alt+S"
               :aria-pressed="speechActive"
               :title="speechButtonLabel"
               data-codex-speech-input

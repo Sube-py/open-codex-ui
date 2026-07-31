@@ -11,8 +11,7 @@ import type { CodexConversationState, CodexWorkMode } from '../types'
 type ComposerProps = InstanceType<typeof CodexComposer>['$props']
 
 function mountCodexComposer(props: ComposerProps) {
-  let wrapper: ReturnType<typeof mount>
-  wrapper = mount(CodexComposer, {
+  const wrapper = mount(CodexComposer, {
     props: {
       ...props,
       'onUpdate:modelValue': (value: string) => wrapper.setProps({ modelValue: value }),
@@ -71,6 +70,7 @@ describe('CodexComposer', () => {
     const sendButton = wrapper.get('[data-codex-primary-submit]')
 
     expect(speechButton.attributes('aria-label')).toBe('Hold to speak')
+    expect(speechButton.attributes('aria-keyshortcuts')).toBe('Alt+S')
     expect(speechButton.element.nextElementSibling).toBe(sendButton.element)
   })
 

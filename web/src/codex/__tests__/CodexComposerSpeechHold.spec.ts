@@ -136,6 +136,74 @@ describe('CodexComposer push-to-talk input', () => {
     expect(session.stop).toHaveBeenCalledOnce()
   })
 
+  it('records while Alt+S is held globally and stops when either key is released', async () => {
+    const wrapper = mountComposer()
+    const session = speechHarness.sessions[0]!
+    const shortcutDown = new KeyboardEvent('keydown', {
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+      code: 'KeyS',
+      key: 'ß',
+    })
+
+    document.body.dispatchEvent(shortcutDown)
+    await wrapper.vm.$nextTick()
+
+    expect(shortcutDown.defaultPrevented).toBe(true)
+    expect(session.start).toHaveBeenCalledOnce()
+    expect(document.body.querySelector('[data-codex-speech-waveform]')).not.toBeNull()
+
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+        code: 'KeyS',
+        key: 's',
+        repeat: true,
+      }),
+    )
+    expect(session.start).toHaveBeenCalledOnce()
+
+    const altUp = new KeyboardEvent('keyup', {
+      bubbles: true,
+      cancelable: true,
+      code: 'AltLeft',
+      key: 'Alt',
+    })
+    window.dispatchEvent(altUp)
+    await wrapper.vm.$nextTick()
+
+    expect(altUp.defaultPrevented).toBe(true)
+    expect(session.stop).toHaveBeenCalledOnce()
+    expect(document.body.querySelector('[data-codex-speech-waveform]')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('cancels an active speech shortcut when the window loses focus', async () => {
+    const wrapper = mountComposer()
+    const session = speechHarness.sessions[0]!
+
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+        code: 'KeyS',
+        key: 's',
+      }),
+    )
+    await wrapper.vm.$nextTick()
+    window.dispatchEvent(new Event('blur'))
+    await wrapper.vm.$nextTick()
+
+    expect(session.start).toHaveBeenCalledOnce()
+    expect(session.dispose).toHaveBeenCalledOnce()
+    expect(document.body.querySelector('[data-codex-speech-waveform]')).toBeNull()
+    wrapper.unmount()
+  })
+
   it('cancels voice input when the page moves to the background', async () => {
     let visibilityState: DocumentVisibilityState = 'visible'
     vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibilityState)
