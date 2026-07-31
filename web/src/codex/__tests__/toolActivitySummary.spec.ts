@@ -81,6 +81,19 @@ describe('summarizeToolActivity', () => {
     })
   })
 
+  it('uses an icon available in PrimeIcons for command-only summaries', () => {
+    const summary = summarizeToolActivity([
+      {
+        type: 'commandExecution',
+        command: 'pnpm test',
+        status: 'completed',
+      },
+    ])
+
+    expect(summary.icon).toBe('pi-code')
+    expect(summary.text).toBe('Ran a command')
+  })
+
   it('separates loaded skills and browser activity from generic commands and tools', () => {
     const summary = summarizeToolActivity([
       {

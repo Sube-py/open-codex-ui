@@ -482,11 +482,11 @@ describe('CodexConversation', () => {
     )
 
     expect(wrapper.text()).toContain('Working for 3s')
-    expect(wrapper.get('[data-codex-reasoning-summary]').text()).not.toContain(
-      'Inspecting the code',
-    )
-    expect(wrapper.get('[data-codex-reasoning-summary]').text()).toContain('Checking the tests')
-    expect(wrapper.get('[data-codex-reasoning-summary]').text()).not.toContain('****')
+    const activity = wrapper.get('[data-codex-work-activity]')
+    const reasoning = wrapper.get('[data-codex-reasoning-summary]')
+    expect(reasoning.text()).toBe('Checking the tests')
+    expect(activity.attributes('data-codex-activity-status')).toBeDefined()
+    expect(wrapper.find('[data-codex-activity-toggle]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Hidden raw reasoning')
     expect(wrapper.text()).not.toContain('Thinking')
     expect(wrapper.find('[data-codex-thinking-placeholder]').exists()).toBe(false)
@@ -616,7 +616,7 @@ describe('CodexConversation', () => {
     expect(wrapper.text()).not.toContain('Preparing to reconnect')
   })
 
-  it('moves the latest reasoning summary across a tool activity boundary', () => {
+  it('uses the latest reasoning summary as the current activity header', () => {
     const wrapper = mountConversation(
       [
         {
@@ -643,13 +643,13 @@ describe('CodexConversation', () => {
       { status: 'in_progress' },
     )
 
-    const summaries = wrapper.findAll('[data-codex-reasoning-summary]')
-    expect(summaries).toHaveLength(1)
-    expect(summaries[0]?.text()).toContain('Reviewing the test results')
+    const activityToggle = wrapper.get('[data-codex-activity-toggle]')
+    const reasoning = wrapper.get('[data-codex-reasoning-summary]')
+    expect(wrapper.findAll('[data-codex-work-activity]')).toHaveLength(1)
+    expect(reasoning.text()).toContain('Reviewing the test results')
+    expect(reasoning.element.parentElement).toBe(activityToggle.element)
+    expect(activityToggle.text()).not.toContain('Ran a command')
     expect(wrapper.text()).not.toContain('Planning the test run')
-    expect(wrapper.html().indexOf('data-codex-work-activity')).toBeLessThan(
-      wrapper.html().indexOf('Reviewing the test results'),
-    )
   })
 
   it('groups tools across reasoning updates into one semantic activity summary', async () => {
@@ -694,14 +694,14 @@ describe('CodexConversation', () => {
     )
 
     expect(wrapper.findAll('[data-codex-work-activity]')).toHaveLength(1)
-    expect(wrapper.get('[data-codex-activity-toggle]').text()).toContain('Read files and ran commands')
-    expect(wrapper.findAll('[data-codex-reasoning-summary]')).toHaveLength(1)
+    const activityToggle = wrapper.get('[data-codex-activity-toggle]')
+    expect(activityToggle.text()).toContain('Validating grouped tool activity')
     expect(wrapper.text()).not.toContain('Reviewing the conversation projector')
-    expect(wrapper.get('[data-codex-reasoning-summary]').text()).toContain(
-      'Validating grouped tool activity',
+    expect(wrapper.get('[data-codex-reasoning-summary]').element.parentElement).toBe(
+      activityToggle.element,
     )
 
-    await wrapper.get('[data-codex-activity-toggle]').trigger('click')
+    await activityToggle.trigger('click')
 
     expect(wrapper.findAll('[data-codex-work-row]')).toHaveLength(3)
   })
@@ -747,9 +747,46 @@ describe('CodexConversation', () => {
     const activityRows = wrapper.findAll('[data-codex-work-activity]')
     expect(activityRows).toHaveLength(2)
     expect(activityRows[0]?.text()).toContain('Read files and ran a command')
-    expect(activityRows[1]?.text()).toContain('Ran a command')
+    expect(activityRows[1]?.text()).toContain('Checking the first tool phase')
+    expect(activityRows[1]?.text()).not.toContain('Ran a command')
     expect(wrapper.get('[data-codex-work-message]').text()).toContain(
       'The first phase is complete.',
+    )
+  })
+
+  it('places the reasoning fallback after commentary instead of beside the previous tool group', () => {
+    const wrapper = mountConversation(
+      [
+        {
+          id: 'command-1',
+          type: 'commandExecution',
+          command: 'git status --short',
+          status: 'completed',
+          completed: true,
+        },
+        {
+          id: 'reasoning-1',
+          type: 'reasoning',
+          summary: '**Inspecting key file diffs with line numbers**',
+          status: 'inProgress',
+        },
+        {
+          id: 'commentary-1',
+          type: 'agentMessage',
+          phase: 'commentary',
+          text: 'The changes split into two focused areas.',
+        },
+      ],
+      { status: 'in_progress' },
+    )
+
+    const activityRows = wrapper.findAll('[data-codex-work-activity]')
+    expect(activityRows).toHaveLength(2)
+    expect(activityRows[0]?.text()).toContain('Ran a command')
+    expect(activityRows[1]?.attributes('data-codex-activity-status')).toBeDefined()
+    expect(activityRows[1]?.text()).toBe('Inspecting key file diffs with line numbers')
+    expect(wrapper.html().indexOf('The changes split into two focused areas.')).toBeLessThan(
+      wrapper.html().indexOf('Inspecting key file diffs with line numbers'),
     )
   })
 
@@ -848,7 +885,7 @@ describe('CodexConversation', () => {
 
     const activityToggle = wrapper.get('[data-codex-activity-toggle]')
     expect(activityToggle.text()).toContain('Running pnpm build')
-    expect(activityToggle.get('[data-codex-activity-icon]').classes()).toContain('pi-terminal')
+    expect(activityToggle.get('[data-codex-activity-icon]').classes()).toContain('pi-code')
     expect(activityToggle.find('[data-codex-thinking-shimmer]').exists()).toBe(true)
     expect(wrapper.find('[data-codex-thinking-placeholder]').exists()).toBe(false)
 
@@ -858,34 +895,59 @@ describe('CodexConversation', () => {
     expect(wrapper.get('[data-codex-command-output]').text()).toContain('building...')
   })
 
-  it('shows reasoning before the tool activity that follows it', () => {
-    const wrapper = mountConversation(
-      [
-        {
-          id: 'reasoning-1',
-          type: 'reasoning',
-          summary: 'Checking the reconnect lifecycle',
-          status: 'completed',
-        },
-        {
-          id: 'command-1',
-          type: 'commandExecution',
-          command: 'pnpm test:unit',
-          status: 'running',
-          completed: false,
-        },
-      ],
-      { status: 'in_progress' },
-    )
+  it('reuses one activity row for reasoning, a running tool, and the completed summary', async () => {
+    const reasoningItem = {
+      id: 'reasoning-1',
+      type: 'reasoning',
+      summary: 'Checking the reconnect lifecycle',
+      status: 'completed',
+    }
+    const runningCommand = {
+      id: 'command-1',
+      type: 'commandExecution',
+      command: 'pnpm test:unit',
+      status: 'running',
+      completed: false,
+    }
+    const wrapper = mountConversation([reasoningItem], { status: 'in_progress' })
 
-    expect(wrapper.get('[data-codex-reasoning-summary]').text()).toContain(
+    expect(wrapper.findAll('[data-codex-work-activity]')).toHaveLength(1)
+    expect(wrapper.get('[data-codex-work-activity]').text()).toContain(
       'Checking the reconnect lifecycle',
     )
+
+    await wrapper.setProps({
+      state: createState([reasoningItem, runningCommand], { status: 'in_progress' }),
+    })
+
+    expect(wrapper.findAll('[data-codex-work-activity]')).toHaveLength(1)
+    expect(wrapper.find('[data-codex-activity-status]').exists()).toBe(false)
     expect(wrapper.get('[data-codex-activity-toggle]').text()).toContain('Running pnpm test:unit')
-    expect(wrapper.find('[data-codex-thinking-placeholder]').exists()).toBe(false)
-    expect(wrapper.html().indexOf('data-codex-reasoning-summary')).toBeLessThan(
-      wrapper.html().indexOf('data-codex-work-activity'),
+    expect(wrapper.text()).not.toContain('Checking the reconnect lifecycle')
+
+    await wrapper.setProps({
+      state: createState(
+        [reasoningItem, { ...runningCommand, status: 'completed', completed: true }],
+        { status: 'in_progress' },
+      ),
+    })
+
+    expect(wrapper.findAll('[data-codex-work-activity]')).toHaveLength(1)
+    expect(wrapper.get('[data-codex-activity-toggle]').text()).toContain(
+      'Checking the reconnect lifecycle',
     )
+
+    await wrapper.setProps({
+      state: createState(
+        [reasoningItem, { ...runningCommand, status: 'completed', completed: true }],
+        { status: 'completed' },
+      ),
+    })
+    await wrapper.get('[data-codex-work-toggle]').trigger('click')
+
+    expect(wrapper.findAll('[data-codex-work-activity]')).toHaveLength(1)
+    expect(wrapper.get('[data-codex-activity-toggle]').text()).toContain('Ran a command')
+    expect(wrapper.find('[data-codex-reasoning-summary]').exists()).toBe(false)
   })
 
   it('summarizes adjacent tool activities behind one compact disclosure', async () => {

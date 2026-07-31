@@ -130,7 +130,7 @@ function completedSummaryParts(items: JsonRecord[]): SummaryPart[] {
   if (exploredFiles) {
     parts.push({ icon: 'pi-search', text: 'Read files' })
   }
-  pushCountPart(parts, commands, 'Ran a command', 'Ran commands', 'pi-terminal')
+  pushCountPart(parts, commands, 'Ran a command', 'Ran commands', 'pi-code')
   if (webSearches) {
     parts.push({ icon: 'pi-globe', text: 'Searched the web' })
   }
@@ -176,7 +176,7 @@ function activeSummaryPart(item: JsonRecord): SummaryPart {
       }
     }
     return {
-      icon: 'pi-terminal',
+      icon: 'pi-code',
       text: `Running ${cleanShellCommand(firstString(item.command, item.cmd)) || 'command'}`,
     }
   }

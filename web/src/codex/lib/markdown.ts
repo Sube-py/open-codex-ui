@@ -18,6 +18,12 @@ const imageFileExtensionPattern = /\.(?:png|jpe?g|gif|webp|bmp)(?:[?#].*)?$/i
 const renderedMarkdownCache = new Map<string, string>()
 const renderedMarkdownCacheLimit = 300
 
+export function markdownInlineText(content: string) {
+  const tokens = markdown.parseInline(content, {})
+  const inlineTokens = tokens.flatMap((token) => token.children ?? [])
+  return markdown.renderer.renderInlineAsText(inlineTokens, markdown.options, {}).trim()
+}
+
 function highlightMarkdownCode(content: string, language = '') {
   const { requestedLanguage, highlightLanguage } = resolveHighlightLanguage(language)
   const escapedContent = markdown.utils.escapeHtml(content)

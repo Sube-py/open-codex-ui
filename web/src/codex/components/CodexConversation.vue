@@ -12,7 +12,7 @@ import {
   statusLabel,
   textFromInput,
 } from '../lib/format'
-import { useCodexMarkdown } from '../lib/markdown'
+import { markdownInlineText, useCodexMarkdown } from '../lib/markdown'
 import { summarizeToolActivity, type ToolActivitySummary } from '../lib/toolActivitySummary'
 import { userMessageDisplayText } from '../lib/userMessage'
 import CodexConversationError from './CodexConversationError.vue'
@@ -30,7 +30,7 @@ const emit = defineEmits<{
 
 type ConversationItemKind = 'user' | 'assistant' | 'work' | 'system' | 'error' | 'unknown'
 type TurnBlockKind = 'user' | 'work' | 'assistant' | 'system' | 'error' | 'unknown'
-type WorkRenderUnitKind = 'message' | 'reasoning' | 'activity' | 'todo' | 'context' | 'image'
+type WorkRenderUnitKind = 'message' | 'activity' | 'status' | 'todo' | 'context' | 'image'
 
 interface ConversationItemView {
   id: string
@@ -50,6 +50,8 @@ interface WorkRenderUnit {
   kind: WorkRenderUnitKind
   items: ConversationItemView[]
   summary?: ToolActivitySummary
+  live?: boolean
+  thinkingFallback?: string
 }
 
 interface TurnView {
@@ -402,7 +404,7 @@ function turnView(turn: CodexTurnState, index: number): TurnView {
       id: `${turnKey(turn, index)}-work-${workBlockIndex}`,
       kind: 'work',
       items,
-      workUnits: workRenderUnits(items, latestReasoningItem),
+      workUnits: workRenderUnits(items),
     })
     pendingWork = []
     workBlockIndex += 1
@@ -475,6 +477,10 @@ function turnView(turn: CodexTurnState, index: number): TurnView {
     blocks.push({ id: view.id, kind: 'unknown', items: [view] })
   })
   flushWork()
+
+  if (isTurnInProgress(turn) && finalAssistantIndex < 0) {
+    projectLiveActivitySlot(blocks, latestReasoningItem)
+  }
 
   return {
     key: turnKey(turn, index),
@@ -694,10 +700,7 @@ function setImagePreviewVisible(itemId: string, visible: boolean) {
   }
 }
 
-function workRenderUnits(
-  items: ConversationItemView[],
-  latestReasoningItem: JsonRecord | null,
-): WorkRenderUnit[] {
+function workRenderUnits(items: ConversationItemView[]): WorkRenderUnit[] {
   const units: WorkRenderUnit[] = []
   let activityItems: ConversationItemView[] = []
   let activityIndex = 0
@@ -707,13 +710,7 @@ function workRenderUnits(
       return
     }
     const previousUnit = units[units.length - 1]
-    const precedingUnit = units[units.length - 2]
-    const activityUnit =
-      previousUnit?.kind === 'activity'
-        ? previousUnit
-        : previousUnit?.kind === 'reasoning' && precedingUnit?.kind === 'activity'
-          ? precedingUnit
-          : null
+    const activityUnit = previousUnit?.kind === 'activity' ? previousUnit : null
     if (activityUnit) {
       activityUnit.items.push(...activityItems)
       activityUnit.summary = summarizeToolActivity(activityUnit.items.map((item) => item.item))
@@ -732,11 +729,6 @@ function workRenderUnits(
   for (const item of items) {
     const type = itemType(item.item)
     if (type === 'reasoning') {
-      if (item.item !== latestReasoningItem) {
-        continue
-      }
-      flushActivity()
-      units.push({ id: item.id, kind: 'reasoning', items: [item] })
       continue
     }
     if (type === 'agentMessage' || type === 'plan') {
@@ -763,8 +755,62 @@ function workRenderUnits(
   return units
 }
 
+function projectLiveActivitySlot(
+  blocks: TurnBlockView[],
+  latestReasoningItem: JsonRecord | null,
+) {
+  const latestBlock = blocks[blocks.length - 1]
+  if (latestBlock?.kind !== 'work') {
+    return
+  }
+
+  const units = latestBlock.workUnits ?? []
+  latestBlock.workUnits = units
+  const latestUnit = units[units.length - 1]
+  const thinkingFallback = latestReasoningItem ? itemText(latestReasoningItem) : ''
+
+  if (latestUnit?.kind === 'activity') {
+    latestUnit.live = true
+    latestUnit.thinkingFallback = thinkingFallback
+    return
+  }
+  if (!thinkingFallback) {
+    return
+  }
+  units.push({
+    id: `${latestBlock.id}-live-activity`,
+    kind: 'status',
+    items: [],
+    live: true,
+    thinkingFallback,
+  })
+}
+
 function workUnitsForBlock(block: TurnBlockView) {
-  return block.workUnits ?? workRenderUnits(block.items, null)
+  return block.workUnits ?? workRenderUnits(block.items)
+}
+
+function activityHeader(unit: WorkRenderUnit): ToolActivitySummary {
+  const summary = unit.summary ?? {
+    active: false,
+    icon: 'pi-sparkles',
+    parts: ['Worked'],
+    text: 'Worked',
+  }
+  if (summary.active || !unit.live) {
+    return summary
+  }
+  const text = unit.thinkingFallback || 'Thinking'
+  return {
+    active: true,
+    icon: 'pi-sparkles',
+    parts: [text],
+    text,
+  }
+}
+
+function activityUsesReasoning(unit: WorkRenderUnit) {
+  return Boolean(unit.live && unit.thinkingFallback && !unit.summary?.active)
 }
 
 function hasFinalAssistantResponse(turnView: TurnView) {
@@ -892,7 +938,7 @@ function reasoningText(value: unknown) {
     for (let lineIndex = lines.length - 1; lineIndex >= 0; lineIndex -= 1) {
       const line = lines[lineIndex]?.trim() ?? ''
       if (line && !isReasoningComment(line)) {
-        return line
+        return markdownInlineText(line) || line
       }
     }
   }
@@ -1754,14 +1800,6 @@ const justDebug = false
                 ></div>
 
                 <div
-                  v-else-if="unit.kind === 'reasoning'"
-                  class="markdown-prose markdown-prose-conversation min-w-0 py-0.5 text-sm text-[color:var(--app-text-soft)] [overflow-wrap:anywhere] [&_*]:text-[color:var(--app-text-soft)] [&>:first-child]:mt-0 [&>:last-child]:mb-0"
-                  data-codex-reasoning-summary
-                  v-html="renderMarkdown(itemText(unit.items[0]?.item ?? {}))"
-                  @click="onMarkdownClick"
-                ></div>
-
-                <div
                   v-else-if="unit.kind === 'activity'"
                   class="grid min-w-0 gap-1 py-0.5 text-sm text-[color:var(--app-text-soft)]"
                   data-codex-work-activity
@@ -1774,21 +1812,22 @@ const justDebug = false
                     @click="toggleItem(unit.id)"
                   >
                     <i
-                      class="pi shrink-0 text-[0.72rem] opacity-70"
-                      :class="unit.summary?.icon ?? 'pi-sparkles'"
+                      class="pi w-3 shrink-0 text-center !text-[0.78rem] opacity-70"
+                      :class="activityHeader(unit).icon"
                       aria-hidden="true"
                       data-codex-activity-icon
                     ></i>
                     <CodexThinkingShimmer
-                      v-if="unit.summary?.active"
+                      v-if="activityHeader(unit).active"
                       class="min-w-0"
-                      :message="unit.summary.text"
+                      :message="activityHeader(unit).text"
+                      :data-codex-reasoning-summary="activityUsesReasoning(unit) || undefined"
                     />
                     <span v-else class="min-w-0 truncate">
-                      {{ unit.summary?.text ?? 'Worked' }}
+                      {{ activityHeader(unit).text }}
                     </span>
                     <i
-                      class="pi pi-chevron-right shrink-0 text-[0.56rem] opacity-50 transition-transform"
+                      class="pi pi-chevron-right shrink-0 !text-[0.6rem] leading-none opacity-45 transition-transform"
                       :class="isItemExpanded(unit.id) ? 'rotate-90' : ''"
                     ></i>
                   </button>
@@ -1917,6 +1956,24 @@ const justDebug = false
                       </div>
                     </div>
                   </div>
+                </div>
+
+                <div
+                  v-else-if="unit.kind === 'status'"
+                  class="inline-flex min-w-0 items-center gap-1 px-1 py-0.5 text-sm text-[color:var(--app-text-soft)]"
+                  data-codex-work-activity
+                  data-codex-activity-status
+                >
+                  <i
+                    class="pi pi-sparkles shrink-0 text-[0.72rem] opacity-70"
+                    aria-hidden="true"
+                    data-codex-activity-icon
+                  ></i>
+                  <CodexThinkingShimmer
+                    class="min-w-0"
+                    :message="unit.thinkingFallback"
+                    data-codex-reasoning-summary
+                  />
                 </div>
 
                 <div v-else-if="unit.kind === 'image'" class="min-w-0 py-1" data-codex-image-view>
@@ -2204,7 +2261,7 @@ const justDebug = false
               class="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-[var(--thread-resource-card-row-padding-x)] py-[var(--turn-diff-row-padding-y)]"
               data-codex-turn-report-commands
             >
-              <i class="pi pi-terminal text-[0.68rem] text-[color:var(--app-text-soft)]"></i>
+              <i class="pi pi-code text-[0.68rem] text-[color:var(--app-text-soft)]"></i>
               <span class="min-w-0 truncate">Commands</span>
               <span class="font-semibold text-[color:var(--app-text)]">
                 {{ reportStatLabel(turnView.report.commandCount, 'command') }}
