@@ -297,6 +297,11 @@ describe('useCodexWorkspace', () => {
     const commandCount = socket.commands.length
 
     socket.emitStatus('closed')
+    expect(workspace.reconnectState.value).toEqual({
+      phase: 'scheduled',
+      attempt: 1,
+      nextDelayMs: 1_000,
+    })
     await vi.advanceTimersByTimeAsync(1_000)
     await flushPromises()
 
@@ -311,6 +316,11 @@ describe('useCodexWorkspace', () => {
       payload: { thread_id: 'thread-b', cached_turn_ids: [] },
     })
     expect(workspace.status.value).toBe('open')
+    expect(workspace.reconnectState.value).toEqual({
+      phase: 'open',
+      attempt: 0,
+      nextDelayMs: null,
+    })
     wrapper.unmount()
   })
 

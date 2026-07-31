@@ -18,6 +18,11 @@ const baseProps: {
   activeMode: CodexWorkMode
   queuedFollowups: CodexQueuedFollowup[]
   socketStatus: CodexSocketStatus
+  reconnectState: {
+    phase: 'idle' | 'open' | 'scheduled' | 'connecting' | 'offline'
+    attempt: number
+    nextDelayMs: number | null
+  }
   isThreadLoading: boolean
 } = {
   activeThreadId: 'thread-1',
@@ -27,6 +32,7 @@ const baseProps: {
   activeMode: 'build',
   queuedFollowups: [],
   socketStatus: 'open',
+  reconnectState: { phase: 'open', attempt: 0, nextDelayMs: null },
   isThreadLoading: false,
 }
 
@@ -85,9 +91,7 @@ describe('CodexChatPane', () => {
       },
     })
 
-    expect(wrapper.get('[data-codex-thread-loading]').text()).toContain(
-      'Loading conversation',
-    )
+    expect(wrapper.get('[data-codex-thread-loading]').text()).toContain('Loading conversation')
     expect(wrapper.getComponent({ name: 'CodexComposer' }).props('disabled')).toBe(true)
   })
 
@@ -119,5 +123,56 @@ describe('CodexChatPane', () => {
     expect(gitInfo.text()).toContain('feature/goal-mode')
     expect(gitInfo.text()).toContain('abcdef1')
     expect(gitInfo.text()).toContain('git@example.com:app/repo.git')
+  })
+
+  it('shows reconnect progress and removes it after recovery', async () => {
+    const wrapper = shallowMount(CodexChatPane, {
+      props: {
+        ...baseProps,
+        socketStatus: 'closed',
+        reconnectState: { phase: 'scheduled', attempt: 3, nextDelayMs: 4_000 },
+      },
+      global: {
+        stubs: {
+          CodexComposer: true,
+          CodexConversation: true,
+          CodexRequestPanel: true,
+          CodexThreadToolbar: true,
+        },
+      },
+    })
+
+    expect(wrapper.get('[data-codex-reconnect-notice]').text()).toContain(
+      'Connection lost. Reconnecting (attempt 3) in 4s...',
+    )
+
+    await wrapper.setProps({
+      socketStatus: 'open',
+      reconnectState: { phase: 'open', attempt: 0, nextDelayMs: null },
+    })
+
+    expect(wrapper.find('[data-codex-reconnect-notice]').exists()).toBe(false)
+  })
+
+  it('shows an offline-specific reconnect notice', () => {
+    const wrapper = shallowMount(CodexChatPane, {
+      props: {
+        ...baseProps,
+        socketStatus: 'closed',
+        reconnectState: { phase: 'offline', attempt: 1, nextDelayMs: null },
+      },
+      global: {
+        stubs: {
+          CodexComposer: true,
+          CodexConversation: true,
+          CodexRequestPanel: true,
+          CodexThreadToolbar: true,
+        },
+      },
+    })
+
+    expect(wrapper.get('[data-codex-reconnect-notice]').text()).toContain(
+      "You're offline. Reconnection will resume when online.",
+    )
   })
 })

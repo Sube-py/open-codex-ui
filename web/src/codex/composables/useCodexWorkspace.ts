@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { apiGet } from '../../lib/api'
-import { CodexReconnectController } from '../lib/codexReconnect'
+import { CodexReconnectController, type CodexReconnectState } from '../lib/codexReconnect'
 import { CodexSocket } from '../lib/codexSocket'
 import type { CodexTurnCache } from '../lib/codexTurnCache'
 import { CodexTurnSync, normalizeThreadDeltaPayload } from '../lib/codexTurnSync'
@@ -334,6 +334,11 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
   const socket = options.socket ?? new CodexSocket(options.socketUrl)
   const turnSync = new CodexTurnSync(options.turnCache)
   const status = ref<CodexSocketStatus>('idle')
+  const reconnectState = ref<CodexReconnectState>({
+    phase: 'idle',
+    attempt: 0,
+    nextDelayMs: null,
+  })
   const workspace = ref<CodexWorkspaceResponse>(emptyWorkspace())
   const threadPayloads = ref<Record<string, CodexThreadStatePayload>>({})
   const activeThreadId = ref(readActiveThreadId(persistThreadSelection))
@@ -350,6 +355,9 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
   const projectPathDraft = ref('')
   const reconnectController = new CodexReconnectController({
     reconnect: restoreSocketConnection,
+    onStateChange: (state) => {
+      reconnectState.value = state
+    },
   })
   let unsubscribeSocketEvent: (() => void) | null = null
   let unsubscribeSocketStatus: (() => void) | null = null
@@ -570,7 +578,9 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     try {
       await restoreSocketConnection()
     } catch (error) {
-      errorMessage.value = toErrorMessage(error)
+      if (!['scheduled', 'connecting', 'offline'].includes(reconnectState.value.phase)) {
+        errorMessage.value = toErrorMessage(error)
+      }
     } finally {
       isBooting.value = false
     }
@@ -1234,6 +1244,7 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     projectPathDraft,
     queuedFollowups,
     refreshRemoteConnections,
+    reconnectState,
     refreshWorkspace,
     refreshWorkspaceAndSelect,
     removeFollowup,

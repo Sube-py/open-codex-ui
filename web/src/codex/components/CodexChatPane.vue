@@ -5,6 +5,7 @@ import CodexComposer from './CodexComposer.vue'
 import CodexConversation from './CodexConversation.vue'
 import CodexRequestPanel from './CodexRequestPanel.vue'
 import CodexThreadToolbar from './CodexThreadToolbar.vue'
+import type { CodexReconnectState } from '../lib/codexReconnect'
 import type {
   CodexConversationState,
   CodexPendingRequest,
@@ -27,6 +28,7 @@ const props = defineProps<{
   activeMode: CodexWorkMode
   queuedFollowups: CodexQueuedFollowup[]
   socketStatus: CodexSocketStatus
+  reconnectState: CodexReconnectState
   errorMessage?: string
   successMessage?: string
   isCommandBusy?: boolean
@@ -73,6 +75,25 @@ const gitOriginUrl = computed(() =>
   stringValue(gitInfo.value?.originUrl ?? gitInfo.value?.origin_url),
 )
 const gitShortSha = computed(() => (gitSha.value ? gitSha.value.slice(0, 7) : ''))
+const reconnectNotice = computed(() => {
+  const state = props.reconnectState
+  if (state.phase === 'offline') {
+    return "You're offline. Reconnection will resume when online."
+  }
+  if (state.phase === 'connecting') {
+    return `Connection lost. Reconnecting (attempt ${state.attempt})...`
+  }
+  if (state.phase === 'scheduled') {
+    const delay = state.nextDelayMs == null ? '' : ` in ${formatReconnectDelay(state.nextDelayMs)}`
+    return `Connection lost. Reconnecting (attempt ${state.attempt})${delay}...`
+  }
+  return ''
+})
+
+function formatReconnectDelay(delayMs: number) {
+  const seconds = Math.max(Math.ceil(delayMs / 1_000), 1)
+  return `${seconds}s`
+}
 
 function stringValue(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : ''
@@ -157,6 +178,22 @@ function stringValue(value: unknown) {
           <span>Loading conversation</span>
         </div>
       </div>
+    </div>
+
+    <div
+      v-if="reconnectNotice"
+      class="flex min-w-0 items-center gap-2 border-t border-[color:var(--app-border)] bg-[color:var(--app-warning-bg)] px-4 py-2 text-xs text-[color:var(--app-warning-text)] max-sm:px-3"
+      role="status"
+      aria-live="polite"
+      data-codex-reconnect-notice
+      :data-codex-reconnect-phase="reconnectState.phase"
+    >
+      <i
+        class="pi shrink-0 text-[0.72rem]"
+        :class="reconnectState.phase === 'connecting' ? 'pi-spinner pi-spin' : 'pi-wifi'"
+        aria-hidden="true"
+      ></i>
+      <span class="min-w-0 [overflow-wrap:anywhere]">{{ reconnectNotice }}</span>
     </div>
 
     <CodexRequestPanel

@@ -398,6 +398,7 @@ onBeforeUnmount(() => {
       :active-mode="codex.activeMode"
       :queued-followups="codex.queuedFollowups"
       :socket-status="codex.status"
+      :reconnect-state="codex.reconnectState"
       :error-message="displayError"
       :success-message="codex.successMessage"
       :is-command-busy="codex.isCommandBusy || isInitializing"

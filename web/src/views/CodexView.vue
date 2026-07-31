@@ -134,6 +134,7 @@ function startMobileThread(projectPath: string, hostId?: string) {
           :active-mode="codex.activeMode"
           :queued-followups="codex.queuedFollowups"
           :socket-status="codex.status"
+          :reconnect-state="codex.reconnectState"
           :error-message="codex.errorMessage"
           :success-message="codex.successMessage"
           :is-command-busy="codex.isCommandBusy"
