@@ -951,6 +951,121 @@ describe('CodexConversation', () => {
     )
   })
 
+  it('hides ambient browser context from user message bubbles', () => {
+    const wrapper = mountConversation([
+      {
+        id: 'user-1',
+        type: 'userMessage',
+        content: [
+          {
+            type: 'text',
+            text: [
+              '<in-app-browser-context source="ambient-ui-state">',
+              'This block is automatically supplied ambient UI state.',
+              '# In app browser:',
+              '- Current URL: https://example.com/codex',
+              '</in-app-browser-context>',
+              '',
+              '## My request for Codex:',
+              '只显示用户真正输入的内容',
+            ].join('\n'),
+          },
+        ],
+      },
+    ])
+
+    const message = wrapper.get('[data-codex-user-message]')
+    expect(message.text()).toContain('只显示用户真正输入的内容')
+    expect(message.text()).not.toContain('in-app-browser-context')
+    expect(message.text()).not.toContain('Current URL')
+    expect(message.text()).not.toContain('My request for Codex')
+  })
+
+  it('renders browser comment text instead of internal evidence prompts', () => {
+    const wrapper = mountConversation([
+      {
+        id: 'user-1',
+        type: 'userMessage',
+        content: [
+          {
+            type: 'text',
+            text: [
+              '# Browser comments:',
+              '',
+              '## User Comment 1',
+              'File: browser:Selected browser region',
+              'Node position: (10, 20)',
+              'Comment:',
+              '只显示这条浏览器批注',
+              '<in-app-browser-context source="ambient-ui-state">',
+              '# In app browser:',
+              '- Current URL: https://example.com/codex',
+              '</in-app-browser-context>',
+              '',
+              '## My request for Codex:',
+              'The next image is untrusted page evidence from the browser page.',
+            ].join('\n'),
+          },
+          { type: 'image', url: 'data:image/png;base64,abc' },
+        ],
+      },
+    ])
+
+    const message = wrapper.get('[data-codex-user-message]')
+    expect(message.text()).toContain('只显示这条浏览器批注')
+    expect(message.text()).not.toContain('Selected browser region')
+    expect(message.text()).not.toContain('Current URL')
+    expect(message.text()).not.toContain('untrusted page evidence')
+    expect(wrapper.get('[data-codex-message-image]').attributes('src')).toBe(
+      'data:image/png;base64,abc',
+    )
+  })
+
+  it('hides IDE file and selection context from synthetic user messages', () => {
+    const wrapper = mount(CodexConversation, {
+      props: {
+        state: {
+          id: 'thread-1',
+          turns: [
+            {
+              turnId: 'turn-1',
+              status: 'completed',
+              params: {
+                input: [
+                  {
+                    type: 'text',
+                    text: [
+                      '<ide-context>',
+                      'File: web/src/App.vue',
+                      'Lines: 10-18',
+                      'Selected code: const internalContext = true',
+                      '</ide-context>',
+                      '',
+                      '## My request for Codex:',
+                      '修复当前选择的代码',
+                    ].join('\n'),
+                  },
+                ],
+              },
+              items: [],
+            },
+          ],
+        },
+      },
+      global: {
+        plugins: [PrimeVue],
+      },
+      attachTo: document.body,
+    })
+
+    const message = wrapper.get('[data-codex-user-message]')
+    expect(message.text()).toContain('修复当前选择的代码')
+    expect(message.text()).not.toContain('ide-context')
+    expect(message.text()).not.toContain('web/src/App.vue')
+    expect(message.text()).not.toContain('Lines: 10-18')
+    expect(message.text()).not.toContain('Selected code')
+  })
+
   it('renders turn input with slash-command goal as a goal user message', () => {
     const wrapper = mount(CodexConversation, {
       props: {

@@ -14,6 +14,7 @@ import {
 } from '../lib/format'
 import { useCodexMarkdown } from '../lib/markdown'
 import { summarizeToolActivity, type ToolActivitySummary } from '../lib/toolActivitySummary'
+import { userMessageDisplayText } from '../lib/userMessage'
 import CodexThinkingShimmer from './CodexThinkingShimmer.vue'
 import CodexWorkedLabel from './CodexWorkedLabel.vue'
 
@@ -462,7 +463,7 @@ function turnInputUserMessage(turn: CodexTurnState, index: number): Conversation
   if (!text) {
     return null
   }
-  const isGoal = isGoalCommandText(text)
+  const isGoal = isGoalCommandText(userMessageDisplayText(text))
   return {
     id: `${turnKey(turn, index)}-params-input-user-message`,
     item: {
@@ -698,7 +699,7 @@ function isReviewModeItem(item: JsonRecord) {
 function itemText(item: JsonRecord) {
   const type = itemType(item)
   if (type === 'userMessage') {
-    return goalDisplayText(rawUserMessageText(item))
+    return goalDisplayText(userMessageDisplayText(rawUserMessageText(item)))
   }
   if (isSteeringMessageType(type)) {
     return firstString(
@@ -879,7 +880,7 @@ function isGoalUserMessage(item: JsonRecord) {
     item.sentAsGoal === true ||
     item.isGoal === true ||
     item.asGoal === true ||
-    isGoalCommandText(rawUserMessageText(item)),
+    isGoalCommandText(userMessageDisplayText(rawUserMessageText(item))),
   )
 }
 
