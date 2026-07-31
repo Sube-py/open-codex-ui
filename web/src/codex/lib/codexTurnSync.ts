@@ -2,6 +2,7 @@ import {
   cachedTurnIds,
   codexTurnCache,
   mergeTurnDelta,
+  mergeTurnPatches,
   refreshTurnIds,
   type CodexTurnCache,
 } from './codexTurnCache'
@@ -46,6 +47,12 @@ export function normalizeThreadDeltaPayload(
       ? record.turns.filter(
           (turn): turn is CodexTurnState =>
             Boolean(turn) && typeof turn === 'object' && !Array.isArray(turn),
+        )
+      : [],
+    turn_patches: Array.isArray(record.turn_patches)
+      ? record.turn_patches.filter(
+          (patch): patch is CodexThreadStateDeltaPayload['turn_patches'][number] =>
+            Boolean(patch) && typeof patch === 'object' && !Array.isArray(patch),
         )
       : [],
     stream_role:
@@ -97,10 +104,18 @@ export class CodexTurnSync {
     currentTurns: CodexTurnState[] = [],
   ): CodexThreadStatePayload {
     const cachedTurns = this.snapshots.get(payload.thread_id) ?? currentTurns
-    const turns = mergeTurnDelta(cachedTurns, payload.turn_ids, payload.turns)
+    const patchedTurns = mergeTurnPatches(cachedTurns, payload.turn_patches)
+    const turns = mergeTurnDelta(patchedTurns, payload.turn_ids, payload.turns)
     this.snapshots.set(payload.thread_id, turns)
     void this.cache
-      .update(payload.thread_id, payload.turn_ids, payload.turns)
+      .update(
+        payload.thread_id,
+        payload.turn_ids,
+        [...payload.turns, ...payload.turn_patches.flatMap((patch) => {
+          const turn = turns.find((candidate) => candidate.turnId === patch.turn_id)
+          return turn ? [turn] : []
+        })],
+      )
       .catch(() => undefined)
     const state = payload.state ? { ...payload.state, turns } : null
     return {

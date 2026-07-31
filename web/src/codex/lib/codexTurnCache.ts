@@ -1,4 +1,4 @@
-import type { CodexTurnState } from '../types'
+import type { CodexTurnState, CodexTurnStatePatch, JsonRecord } from '../types'
 
 const DATABASE_NAME = 'yier-codex-turn-cache'
 const DATABASE_VERSION = 1
@@ -64,6 +64,61 @@ export function mergeTurnDelta(
     .filter((turn): turn is CodexTurnState => Boolean(turn))
   const idlessTurns = changedTurns.filter((turn) => !codexTurnId(turn))
   return [...orderedTurns, ...idlessTurns]
+}
+
+export function mergeTurnPatches(
+  cachedTurns: CodexTurnState[],
+  patches: CodexTurnStatePatch[],
+): CodexTurnState[] {
+  const turnsById = new Map<string, CodexTurnState>()
+  for (const turn of cachedTurns) {
+    const turnId = codexTurnId(turn)
+    if (turnId) {
+      turnsById.set(turnId, turn)
+    }
+  }
+
+  for (const patch of patches) {
+    const current = turnsById.get(patch.turn_id)
+    if (!current) {
+      continue
+    }
+    const next: CodexTurnState = { ...current }
+    for (const key of patch.remove) {
+      delete next[key]
+    }
+    Object.assign(next, patch.set)
+    const items = Array.isArray(current.items) ? [...current.items] : []
+    items.length = Math.max(patch.item_count, 0)
+    for (const itemPatch of patch.item_patches) {
+      if (itemPatch.index < 0 || itemPatch.index >= items.length) {
+        continue
+      }
+      if (itemPatch.item) {
+        items[itemPatch.index] = itemPatch.item
+        continue
+      }
+      const appendFields = itemPatch.append_fields
+      const item = items[itemPatch.index]
+      if (!appendFields || !item || typeof item !== 'object' || Array.isArray(item)) {
+        continue
+      }
+      const nextItem: JsonRecord = { ...item }
+      for (const [key, suffix] of Object.entries(appendFields)) {
+        const previous = nextItem[key]
+        if (typeof previous === 'string') {
+          nextItem[key] = previous + suffix
+        }
+      }
+      items[itemPatch.index] = nextItem
+    }
+    next.items = items
+    turnsById.set(patch.turn_id, next)
+  }
+
+  return cachedTurns
+    .map((turn) => turnsById.get(codexTurnId(turn)))
+    .filter((turn): turn is CodexTurnState => Boolean(turn))
 }
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {

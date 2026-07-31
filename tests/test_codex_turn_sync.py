@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+
 from yier_web.codex.turn_sync import (
     TurnEventProjector,
     incremental_turn_state,
+    turn_state_patch,
 )
 
 
@@ -91,6 +94,163 @@ def test_incremental_projector_refreshes_mutable_turn_after_new_turn_arrives() -
     )
 
     assert [turn["turnId"] for turn in payload["turns"]] == ["turn-1", "turn-2"]
+    assert payload["turn_patches"] == []
+
+
+def test_turn_state_patch_appends_streaming_text_and_replaces_changed_items() -> None:
+    patch = turn_state_patch(
+        {
+            "turnId": "turn-1",
+            "status": "inProgress",
+            "durationMs": 10,
+            "items": [
+                {"id": "message-1", "type": "agentMessage", "text": "Hello"},
+                {"id": "tool-1", "type": "commandExecution", "status": "running"},
+            ],
+        },
+        {
+            "turnId": "turn-1",
+            "status": "inProgress",
+            "durationMs": 20,
+            "items": [
+                {"id": "message-1", "type": "agentMessage", "text": "Hello world"},
+                {"id": "tool-1", "type": "commandExecution", "status": "completed"},
+                {"id": "message-2", "type": "agentMessage", "text": "Done"},
+            ],
+        },
+    )
+
+    assert patch == {
+        "turn_id": "turn-1",
+        "set": {"durationMs": 20},
+        "remove": [],
+        "item_count": 3,
+        "item_patches": [
+            {"index": 0, "append_fields": {"text": " world"}},
+            {
+                "index": 1,
+                "item": {
+                    "id": "tool-1",
+                    "type": "commandExecution",
+                    "status": "completed",
+                },
+            },
+            {
+                "index": 2,
+                "item": {
+                    "id": "message-2",
+                    "type": "agentMessage",
+                    "text": "Done",
+                },
+            },
+        ],
+    }
+
+
+def test_incremental_projector_sends_text_suffix_then_suppresses_duplicate_state() -> None:
+    projector = TurnEventProjector([])
+    initial_state = {
+        "id": "thread-1",
+        "turns": [
+            {
+                "turnId": "turn-1",
+                "status": "inProgress",
+                "items": [{"type": "agentMessage", "text": "Hello"}],
+            }
+        ],
+    }
+    first = projector.thread_payload(
+        thread_id="thread-1",
+        state=initial_state,
+        stream_role=None,
+        queued_followups=[],
+    )
+    updated_state = {
+        "id": "thread-1",
+        "turns": [
+            {
+                "turnId": "turn-1",
+                "status": "inProgress",
+                "items": [{"type": "agentMessage", "text": "Hello world"}],
+            }
+        ],
+    }
+    second = projector.thread_payload(
+        thread_id="thread-1",
+        state=updated_state,
+        stream_role=None,
+        queued_followups=[],
+    )
+    duplicate = projector(
+        {
+            "type": "thread_state",
+            "payload": {
+                "thread_id": "thread-1",
+                "state": updated_state,
+                "stream_role": None,
+                "queued_followups": [],
+            },
+        }
+    )
+
+    assert first["turns"] == initial_state["turns"]
+    assert first["turn_patches"] == []
+    assert second["turns"] == []
+    assert second["turn_patches"] == [
+        {
+            "turn_id": "turn-1",
+            "set": {},
+            "remove": [],
+            "item_count": 1,
+            "item_patches": [
+                {"index": 0, "append_fields": {"text": " world"}}
+            ],
+        }
+    ]
+    assert duplicate is None
+
+
+def test_incremental_projector_does_not_repeat_the_accumulated_turn() -> None:
+    projector = TurnEventProjector([])
+    text = "streamed text " * 10_000
+    initial_state = {
+        "id": "thread-1",
+        "turns": [
+            {
+                "turnId": "turn-1",
+                "status": "inProgress",
+                "items": [{"type": "agentMessage", "text": text}],
+            }
+        ],
+    }
+    first = projector.thread_payload(
+        thread_id="thread-1",
+        state=initial_state,
+        stream_role=None,
+        queued_followups=[],
+    )
+    updated_state = {
+        "id": "thread-1",
+        "turns": [
+            {
+                "turnId": "turn-1",
+                "status": "inProgress",
+                "items": [{"type": "agentMessage", "text": f"{text}!"}],
+            }
+        ],
+    }
+    delta = projector.thread_payload(
+        thread_id="thread-1",
+        state=updated_state,
+        stream_role=None,
+        queued_followups=[],
+    )
+
+    assert len(json.dumps(first).encode()) > 100_000
+    assert len(json.dumps(delta).encode()) < 1_000
+    assert delta["turn_patches"][0]["item_patches"] == [
+        {"index": 0, "append_fields": {"text": "!"}}
+    ]
 
 
 def test_incremental_projector_drops_duplicate_native_state_event() -> None:

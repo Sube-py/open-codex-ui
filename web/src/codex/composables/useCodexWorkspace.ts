@@ -676,6 +676,7 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
         {
           thread_id: normalizedThreadId,
           cached_turn_ids: cachedTurns.cached_turn_ids,
+          compression: 'gzip',
           ...(cachedTurns.refresh_turn_ids.length
             ? { refresh_turn_ids: cachedTurns.refresh_turn_ids }
             : {}),

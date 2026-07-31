@@ -114,6 +114,10 @@ class SubscribeThreadCommandStrategy(ThreadCommandStrategy):
 class SubscribeThreadDeltaCommandStrategy(ThreadCommandStrategy):
     async def execute(self, context: CodexWsCommandContext) -> dict[str, Any]:
         thread_id = self.thread_id(context)
+        if _payload_text(context.payload, "compression") == "gzip":
+            enable_gzip = getattr(context.outbox, "enable_gzip", None)
+            if callable(enable_gzip):
+                enable_gzip()
         payload = await context.manager.subscribe_with_turn_deltas(
             thread_id,
             context.outbox,

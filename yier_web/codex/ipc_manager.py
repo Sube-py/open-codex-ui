@@ -638,6 +638,7 @@ print(json.dumps({
         *,
         host_id: str | None = None,
         projector: CodexSessionEventProjector | None = None,
+        replay: bool = True,
     ) -> JsonDict | None:
         first_subscription = self._session_events.subscribe_thread(
             thread_id,
@@ -657,23 +658,24 @@ print(json.dumps({
             managed.state or managed.session.state,
             managed.session.config.host_id,
         )
-        await self._session_events.publish_to_thread_subscribers(
-            thread_id,
-            self._legacy_thread_event(
-                "thread_snapshot",
-                thread_id,
-                state=state,
-                session=managed.session,
-            ),
-        )
-        await self._session_events.publish_to_thread_subscribers(
-            thread_id,
-            self._session_state_event(
-                thread_id,
-                state,
-                session=managed.session,
-            ),
-        )
+        if replay:
+            replay_events = (
+                self._legacy_thread_event(
+                    "thread_snapshot",
+                    thread_id,
+                    state=state,
+                    session=managed.session,
+                ),
+                self._session_state_event(
+                    thread_id,
+                    state,
+                    session=managed.session,
+                ),
+            )
+            for event in replay_events:
+                projected = projector(event) if projector is not None else event
+                if projected is not None:
+                    queue.put_nowait(projected)
         return state
 
     async def subscribe_with_turn_deltas(
@@ -694,6 +696,7 @@ print(json.dumps({
             queue,
             host_id=host_id,
             projector=projector,
+            replay=False,
         )
         managed = self._threads[thread_id]
         return projector.thread_payload(

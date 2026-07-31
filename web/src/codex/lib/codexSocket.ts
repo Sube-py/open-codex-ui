@@ -7,6 +7,9 @@ import type {
   CodexSocketStatus,
   JsonRecord,
 } from '../types'
+import { gunzipSync, strFromU8, strToU8 } from 'fflate'
+
+export const CODEX_GZIP_FRAME_PREFIX = strToU8('YIER_GZIP_V1\0')
 
 export class CodexSocketError extends Error {
   constructor(
@@ -48,12 +51,38 @@ export function codexSocketUrl(path = '/api/codex/ws') {
   return defaultSocketUrl(path)
 }
 
-function parseSocketMessage(raw: unknown): CodexSocketMessage | null {
-  if (typeof raw !== 'string') {
-    return null
+function binarySocketData(raw: unknown) {
+  if (raw instanceof ArrayBuffer) {
+    return new Uint8Array(raw)
   }
+  if (ArrayBuffer.isView(raw)) {
+    return new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
+  }
+  return null
+}
+
+function hasPrefix(value: Uint8Array, prefix: Uint8Array) {
+  return value.length >= prefix.length && prefix.every((byte, index) => value[index] === byte)
+}
+
+function socketMessageText(raw: unknown) {
+  if (typeof raw === 'string') {
+    return raw
+  }
+  const binary = binarySocketData(raw)
+  if (!binary || !hasPrefix(binary, CODEX_GZIP_FRAME_PREFIX)) {
+    return ''
+  }
+  return strFromU8(gunzipSync(binary.subarray(CODEX_GZIP_FRAME_PREFIX.length)))
+}
+
+function parseSocketMessage(raw: unknown): CodexSocketMessage | null {
   try {
-    const parsed = JSON.parse(raw) as unknown
+    const text = socketMessageText(raw)
+    if (!text) {
+      return null
+    }
+    const parsed = JSON.parse(text) as unknown
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return null
     }
@@ -100,6 +129,7 @@ export class CodexSocket {
 
     this.setStatus('connecting')
     this.socket = new WebSocket(this.url)
+    this.socket.binaryType = 'arraybuffer'
     this.connectPromise = new Promise<void>((resolve, reject) => {
       const socket = this.socket
       if (!socket) {

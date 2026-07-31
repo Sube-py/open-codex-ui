@@ -47,6 +47,10 @@ To accept connections from other devices, bind explicitly to the network:
 uvx open-codex-ui serve --host 0.0.0.0 --port 13140
 ```
 
+Codex WebSocket subscriptions use turn, item, and streaming-text deltas,
+latest-state coalescing, and negotiated gzip binary frames for larger messages.
+Clients that do not request gzip continue to receive regular JSON frames.
+
 ## Background Service
 
 Install the command persistently and register login startup:

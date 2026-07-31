@@ -24,6 +24,7 @@ from yier_web.codex.ws_commands import (
     CodexWsCommandContext,
     CodexWsCommandStrategyFactory,
 )
+from yier_web.codex.ws_outbox import CodexWebSocketOutbox, gzip_websocket_message
 from yier_web.auth import AuthService
 from yier_web.schemas import (
     ArchiveCodexSessionResponse,
@@ -479,7 +480,7 @@ class CodexController(Controller):
             await socket.close(code=1008, reason="Codex WebSocket unauthorized.")
             return
 
-        outbox: CodexSubscriberQueue = asyncio.Queue()
+        outbox = CodexWebSocketOutbox()
         subscribed_thread_ids: set[str] = set()
 
         await outbox.put(
@@ -511,7 +512,15 @@ class CodexController(Controller):
 
                 if send_task in done:
                     outbound = send_task.result()
-                    await socket.send_json(outbound)
+                    compressed = (
+                        gzip_websocket_message(outbound)
+                        if outbox.compression_enabled
+                        else None
+                    )
+                    if compressed is not None:
+                        await socket.send_bytes(compressed)
+                    else:
+                        await socket.send_json(outbound)
                     send_task = asyncio.create_task(outbox.get())
         except WebSocketDisconnect:
             pass

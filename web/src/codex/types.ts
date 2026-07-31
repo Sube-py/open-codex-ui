@@ -264,8 +264,23 @@ export interface CodexThreadStateDeltaPayload {
   state: CodexConversationState | null
   turn_ids: string[]
   turns: CodexTurnState[]
+  turn_patches: CodexTurnStatePatch[]
   stream_role?: JsonRecord | null
   queued_followups?: CodexQueuedFollowup[]
+}
+
+export interface CodexTurnItemPatch extends JsonRecord {
+  index: number
+  item?: JsonRecord
+  append_fields?: Record<string, string>
+}
+
+export interface CodexTurnStatePatch extends JsonRecord {
+  turn_id: string
+  set: JsonRecord
+  remove: string[]
+  item_count: number
+  item_patches: CodexTurnItemPatch[]
 }
 
 export interface CodexThreadCreateResponse {

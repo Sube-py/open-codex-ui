@@ -1537,6 +1537,7 @@ def test_codex_controller_http_and_websocket_contract(tmp_path: Path) -> None:
             delta_payload = delta_messages[-1]["payload"]
             assert delta_payload["turn_ids"] == ["turn-1", "turn-2"]
             assert [turn["turnId"] for turn in delta_payload["turns"]] == ["turn-2"]
+            assert delta_payload["turn_patches"] == []
             assert "turns" not in delta_payload["state"]
             assert "turnHistory" not in delta_payload["state"]
 
@@ -1565,8 +1566,9 @@ def test_codex_controller_http_and_websocket_contract(tmp_path: Path) -> None:
                 )
             )
             live_delta = live_delta_messages[-1]
+            assert live_delta["payload"]["turns"] == []
             assert [
-                turn["turnId"] for turn in live_delta["payload"]["turns"]
+                patch["turn_id"] for patch in live_delta["payload"]["turn_patches"]
             ] == ["turn-2"]
             assert "turns" not in live_delta["payload"]["state"]
             assert "turnHistory" not in live_delta["payload"]["state"]

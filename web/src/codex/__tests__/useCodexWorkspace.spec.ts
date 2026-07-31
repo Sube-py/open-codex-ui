@@ -313,7 +313,7 @@ describe('useCodexWorkspace', () => {
     ])
     expect(socket.commands[socket.commands.length - 2]).toEqual({
       type: 'subscribe_thread_delta',
-      payload: { thread_id: 'thread-b', cached_turn_ids: [] },
+      payload: { thread_id: 'thread-b', cached_turn_ids: [], compression: 'gzip' },
     })
     expect(workspace.status.value).toBe('open')
     expect(workspace.reconnectState.value).toEqual({
@@ -396,7 +396,7 @@ describe('useCodexWorkspace', () => {
       { type: 'unsubscribe_thread', payload: { thread_id: 'thread-a' } },
       {
         type: 'subscribe_thread_delta',
-        payload: { thread_id: 'thread-b', cached_turn_ids: [] },
+        payload: { thread_id: 'thread-b', cached_turn_ids: [], compression: 'gzip' },
       },
       { type: 'get_thread_goal', payload: { thread_id: 'thread-b' } },
     ])
@@ -467,6 +467,7 @@ describe('useCodexWorkspace', () => {
       payload: {
         thread_id: 'thread-a',
         cached_turn_ids: ['turn-0', 'turn-1'],
+        compression: 'gzip',
         refresh_turn_ids: ['turn-1'],
       },
     })
@@ -528,6 +529,7 @@ describe('useCodexWorkspace', () => {
         payload: {
           thread_id: 'thread-remote',
           cached_turn_ids: [],
+          compression: 'gzip',
           host_id: 'ssh:remote-1',
         },
       },
@@ -545,6 +547,7 @@ describe('useCodexWorkspace', () => {
       payload: {
         thread_id: 'thread-created',
         cached_turn_ids: [],
+        compression: 'gzip',
         host_id: 'ssh:remote-1',
       },
     })
@@ -902,7 +905,11 @@ describe('useCodexWorkspace', () => {
       { type: 'unsubscribe_thread', payload: { thread_id: 'thread-a' } },
       {
         type: 'subscribe_thread_delta',
-        payload: { thread_id: 'thread-forked', cached_turn_ids: [] },
+        payload: {
+          thread_id: 'thread-forked',
+          cached_turn_ids: [],
+          compression: 'gzip',
+        },
       },
       { type: 'get_thread_goal', payload: { thread_id: 'thread-forked' } },
     ])
@@ -930,7 +937,11 @@ describe('useCodexWorkspace', () => {
       { type: 'list_threads', payload: {} },
       {
         type: 'subscribe_thread_delta',
-        payload: { thread_id: 'thread-created', cached_turn_ids: [] },
+        payload: {
+          thread_id: 'thread-created',
+          cached_turn_ids: [],
+          compression: 'gzip',
+        },
       },
       { type: 'get_thread_goal', payload: { thread_id: 'thread-created' } },
     ])
@@ -952,7 +963,7 @@ describe('useCodexWorkspace', () => {
     expect(socket.commands.slice(-2)).toEqual([
       {
         type: 'subscribe_thread_delta',
-        payload: { thread_id: 'thread-b', cached_turn_ids: [] },
+        payload: { thread_id: 'thread-b', cached_turn_ids: [], compression: 'gzip' },
       },
       { type: 'get_thread_goal', payload: { thread_id: 'thread-b' } },
     ])
