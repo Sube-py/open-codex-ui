@@ -19,8 +19,7 @@ from yier_web.system_services import ServiceError
 from yier_web.tunnel import DEFAULT_ORIGIN, TunnelError, TunnelManager
 
 
-DEFAULT_HOST = "127.0.0.1"
-DEFAULT_DAEMON_HOST = "0.0.0.0"
+DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 13140
 
 
@@ -263,7 +262,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Persist the command and install the native login service.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    _add_server_arguments(install_parser, default_host=DEFAULT_DAEMON_HOST)
+    _add_server_arguments(install_parser)
     daemon_subparsers.add_parser("start", help="start the installed service")
     daemon_subparsers.add_parser("stop", help="stop the installed service")
     daemon_subparsers.add_parser("status", help="show installed service status")
@@ -359,12 +358,8 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _add_server_arguments(
-    parser: argparse.ArgumentParser,
-    *,
-    default_host: str = DEFAULT_HOST,
-) -> None:
-    parser.add_argument("--host", default=default_host, help="address to bind")
+def _add_server_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--host", default=DEFAULT_HOST, help="address to bind")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="port to bind")
 
 

@@ -40,11 +40,12 @@ directly with [`uv`](https://docs.astral.sh/uv/):
 uvx open-codex-ui
 ```
 
-Open `http://127.0.0.1:13140`. The wheel already contains the compiled frontend.
-To accept connections from other devices, bind explicitly to the network:
+Open `http://127.0.0.1:13140` on the local machine. The wheel already contains
+the compiled frontend. The server listens on `0.0.0.0` by default so it can be
+reached from other devices on the network. To restrict it to the local machine:
 
 ```bash
-uvx open-codex-ui serve --host 0.0.0.0 --port 13140
+uvx open-codex-ui serve --host 127.0.0.1 --port 13140
 ```
 
 Codex WebSocket subscriptions use turn, item, and streaming-text deltas,

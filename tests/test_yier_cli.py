@@ -15,7 +15,7 @@ class FakeServer:
         self.served = True
 
 
-def test_main_starts_with_safe_production_defaults(
+def test_main_starts_with_network_production_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, Any] = {}
@@ -28,7 +28,7 @@ def test_main_starts_with_safe_production_defaults(
     monkeypatch.setattr(cli, "build_server", fake_build_server)
     assert cli.main([]) == 0
     assert captured == {
-        "host": "127.0.0.1",
+        "host": "0.0.0.0",
         "port": 13140,
         "debug": False,
         "reload": False,
