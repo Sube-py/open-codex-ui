@@ -12,7 +12,7 @@ import type {
   CodexWorkMode,
   JsonRecord,
 } from '../types'
-import { isRecord } from '../lib/format'
+import { isRecord, isWorkingStatus } from '../lib/format'
 import {
   buildSlashCommands,
   clearSlashQuery,
@@ -271,7 +271,9 @@ const goalDetail = computed(() => goalProgressText(threadGoal.value))
 const canResumeGoal = computed(() =>
   ['paused', 'blocked', 'usageLimited'].includes(goalStatus.value),
 )
-const latestTodoList = computed(() => latestTodoListItem(props.state))
+const latestTodoList = computed(() =>
+  props.isWorking ? activeTurnTodoListItem(props.state) : null,
+)
 const latestTodoItems = computed(() => todoItems(latestTodoList.value))
 const latestTodoSummary = computed(() => todoSummary(latestTodoList.value))
 const latestTodoCompletedCount = computed(
@@ -1276,21 +1278,21 @@ function titleCase(value: string) {
     .join(' ')
 }
 
-function latestTodoListItem(state: CodexConversationState | null) {
+function activeTurnTodoListItem(state: CodexConversationState | null) {
   const turns = state?.turns
-  if (!Array.isArray(turns)) {
+  if (!Array.isArray(turns) || turns.length === 0) {
     return null
   }
-  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
-    const items = turns[turnIndex]?.items
-    if (!Array.isArray(items)) {
-      continue
-    }
-    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
-      const item = items[itemIndex]
-      if (isRecord(item) && isTodoListItem(item)) {
-        return item
-      }
+
+  const activeTurn = turns[turns.length - 1]
+  if (!activeTurn || !isWorkingStatus(activeTurn.status) || !Array.isArray(activeTurn.items)) {
+    return null
+  }
+
+  for (let itemIndex = activeTurn.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+    const item = activeTurn.items[itemIndex]
+    if (isRecord(item) && isTodoListItem(item)) {
+      return item
     }
   }
   return null

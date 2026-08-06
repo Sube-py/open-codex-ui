@@ -218,7 +218,7 @@ describe('CodexComposer', () => {
     )
   })
 
-  it('shows the latest todo list as a floating panel above the composer', async () => {
+  it('shows the active turn todo list as a floating panel above the composer', async () => {
     const wrapper = mountCodexComposer({
       modelValue: '',
       disabled: false,
@@ -270,6 +270,80 @@ describe('CodexComposer', () => {
     expect(todos).toHaveLength(2)
     expect(todos[0]?.text()).toContain('Read the official renderer')
     expect(todos[1]?.text()).toContain('Align the local UI')
+  })
+
+  it('hides the todo list when its turn completes', async () => {
+    const activeState: CodexConversationState = {
+      id: 'thread-1',
+      turns: [
+        {
+          turnId: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'todo-1',
+              type: 'todo-list',
+              plan: [{ step: 'Align the local UI', status: 'in_progress' }],
+            },
+          ],
+        },
+      ],
+    }
+    const wrapper = mountCodexComposer({
+      modelValue: '',
+      disabled: false,
+      busy: false,
+      isWorking: true,
+      mode: buildMode,
+      queuedFollowups: [],
+      state: activeState,
+    })
+
+    expect(wrapper.find('[data-codex-floating-todo-list]').exists()).toBe(true)
+
+    await wrapper.setProps({
+      isWorking: false,
+      state: {
+        ...activeState,
+        turns: activeState.turns?.map((turn) => ({ ...turn, status: 'completed' })),
+      },
+    })
+
+    expect(wrapper.find('[data-codex-floating-todo-list]').exists()).toBe(false)
+  })
+
+  it('does not inherit a todo list from a previous turn', () => {
+    const wrapper = mountCodexComposer({
+      modelValue: '',
+      disabled: false,
+      busy: false,
+      isWorking: true,
+      mode: buildMode,
+      queuedFollowups: [],
+      state: {
+        id: 'thread-1',
+        turns: [
+          {
+            turnId: 'turn-1',
+            status: 'completed',
+            items: [
+              {
+                id: 'todo-1',
+                type: 'todo-list',
+                plan: [{ step: 'Finish the previous task', status: 'completed' }],
+              },
+            ],
+          },
+          {
+            turnId: 'turn-2',
+            status: 'inProgress',
+            items: [{ id: 'reasoning-1', type: 'reasoning', summary: ['Start a new task'] }],
+          },
+        ],
+      },
+    })
+
+    expect(wrapper.find('[data-codex-floating-todo-list]').exists()).toBe(false)
   })
 
   it('does not estimate context progress from local message JSON', () => {

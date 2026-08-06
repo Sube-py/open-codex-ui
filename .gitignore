@@ -18,6 +18,7 @@ debug/
 .DS_Store
 .playwright-cli/
 tmp/
+promo/
 *.jsonl
 output/
 /yier_web/static/
