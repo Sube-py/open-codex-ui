@@ -64,6 +64,22 @@ def test_main_keeps_legacy_server_options(monkeypatch: pytest.MonkeyPatch) -> No
     assert captured["port"] == 8081
 
 
+def test_daemon_install_defaults_to_network_bind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class FakeDaemonManager:
+        def install(self, **kwargs: Any) -> int:
+            calls.append(kwargs)
+            return 0
+
+    monkeypatch.setattr(cli, "DaemonManager", FakeDaemonManager)
+
+    assert cli.main(["daemon", "install"]) == 0
+    assert calls == [{"host": "0.0.0.0", "port": 13140}]
+
+
 @pytest.mark.parametrize(
     ("arguments", "method_name", "expected_kwargs"),
     [

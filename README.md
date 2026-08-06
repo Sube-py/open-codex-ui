@@ -62,7 +62,9 @@ uvx open-codex-ui daemon install
 ```
 
 This installs `open-codex-ui` into uv's user bin directory and uses the native
-service manager for the current platform:
+service manager for the current platform. The background service listens on
+`0.0.0.0` by default so it can be reached from other devices on the network.
+Use `--host 127.0.0.1` to restrict it to the local machine.
 
 | Platform | Service                                 |
 | -------- | --------------------------------------- |
