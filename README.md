@@ -206,6 +206,11 @@ Override the runtime configuration when needed:
 | `YIER_SHERPA_ONNX_PROVIDER`     | sherpa-onnx execution provider; default `cpu` |
 | `YIER_SHERPA_ONNX_NUM_THREADS`  | Decoder threads; default `2`                 |
 
+Model directory, execution provider, and decoder thread count can also be
+managed from **Settings → Voice**. They are persisted in
+`~/.yier/web/settings.json`; the environment variables above take precedence
+over the corresponding saved values.
+
 Remote mobile browsers require HTTPS for microphone permission. Localhost is
 also treated as a secure context by modern browsers.
 

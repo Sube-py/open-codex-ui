@@ -33,6 +33,12 @@ function mountDialog() {
         CodexRemoteConnections: {
           template: '<div data-remote-connections />',
         },
+        CodexAuthenticationSettings: {
+          template: '<div data-codex-auth-settings />',
+        },
+        CodexSpeechSettings: {
+          template: '<div data-codex-speech-settings />',
+        },
       },
     },
   })
@@ -72,6 +78,24 @@ describe('CodexSettingsDialog', () => {
     await wrapper.get('[data-codex-settings-appearance]').trigger('click')
 
     expect(wrapper.find('[data-codex-appearance-settings]').exists()).toBe(true)
+    expect(wrapper.find('[data-remote-connections]').exists()).toBe(false)
+  })
+
+  it('opens authentication settings in its own section', async () => {
+    const wrapper = mountDialog()
+
+    await wrapper.get('[data-codex-settings-authentication]').trigger('click')
+
+    expect(wrapper.find('[data-codex-auth-settings]').exists()).toBe(true)
+    expect(wrapper.find('[data-remote-connections]').exists()).toBe(false)
+  })
+
+  it('opens voice settings in its own section', async () => {
+    const wrapper = mountDialog()
+
+    await wrapper.get('[data-codex-settings-speech]').trigger('click')
+
+    expect(wrapper.find('[data-codex-speech-settings]').exists()).toBe(true)
     expect(wrapper.find('[data-remote-connections]').exists()).toBe(false)
   })
 })

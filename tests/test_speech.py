@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from array import array
+import json
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from yier_web.speech import (
     SpeechRecognitionUnavailable,
     SpeechRecognizerConfig,
 )
+from yier_web.schemas import SaveSpeechConfigRequest
 
 
 class FakeCodexIpcManager:
@@ -87,7 +89,7 @@ def build_speech_client(
             event_broker=EventStreamBroker(),
             frontend_service=FrontendService(dist_root=static_root),
             directory_picker_service=FakeDirectoryPickerService(),
-            auth_service=AuthService(),
+            auth_service=AuthService(config_service),
             speech_service=speech_service,
         )
     )
@@ -175,3 +177,82 @@ def test_speech_service_retries_model_loading_after_failure(
 
     assert service.create_session() is not None
     assert load_attempts == 2
+
+
+def test_speech_settings_persist_and_reconfigure_the_running_service(
+    tmp_path: Path,
+) -> None:
+    model_dir = tmp_path / "configured-model"
+    model_dir.mkdir()
+    for name in ("tokens.txt", "encoder.onnx", "decoder.onnx", "joiner.onnx"):
+        (model_dir / name).write_text("model", encoding="utf-8")
+    service = SpeechRecognitionService(
+        config=SpeechRecognizerConfig(model_dir=tmp_path / "missing-model"),
+        recognizer=FakeOnlineRecognizer(),
+    )
+
+    with build_speech_client(tmp_path, service) as client:
+        initial_response = client.get("/api/config/speech")
+        assert initial_response.status_code == 200
+        assert initial_response.json()["status"] == "missing"
+
+        save_response = client.put(
+            "/api/config/speech",
+            json={
+                "model_dir": str(model_dir),
+                "provider": "cpu",
+                "num_threads": 4,
+            },
+        )
+        assert save_response.status_code == 200
+        assert save_response.json() == {
+            "model_dir": str(model_dir),
+            "provider": "cpu",
+            "num_threads": 4,
+            "status": "ready",
+            "detail": "Model files are ready.",
+            "model_dir_source": "settings",
+            "provider_source": "settings",
+            "num_threads_source": "settings",
+        }
+        assert service.config.model_dir == model_dir
+        assert service.config.provider == "cpu"
+        assert service.config.num_threads == 4
+        assert service.create_session() is not None
+
+        settings_path = tmp_path / "home" / ".yier" / "web" / "settings.json"
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        assert settings["speech"] == {
+            "model_dir": str(model_dir),
+            "provider": "cpu",
+            "num_threads": 4,
+        }
+
+
+def test_speech_environment_variables_override_stored_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_service = AppConfigService(
+        project_root=tmp_path / "project",
+        home_dir=tmp_path / "home",
+    )
+    config_service.save_speech_settings(
+        SaveSpeechConfigRequest(
+            model_dir="~/stored-model",
+            provider="cpu",
+            num_threads=2,
+        )
+    )
+    monkeypatch.setenv("YIER_SHERPA_ONNX_MODEL_DIR", str(tmp_path / "env-model"))
+    monkeypatch.setenv("YIER_SHERPA_ONNX_PROVIDER", "coreml")
+    monkeypatch.setenv("YIER_SHERPA_ONNX_NUM_THREADS", "6")
+
+    config = SpeechRecognizerConfig.from_settings(config_service)
+
+    assert config.model_dir == tmp_path / "env-model"
+    assert config.provider == "coreml"
+    assert config.num_threads == 6
+    assert config.model_dir_source == "environment"
+    assert config.provider_source == "environment"
+    assert config.num_threads_source == "environment"

@@ -24,6 +24,30 @@ CodexReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhig
 CodexServiceTier = Literal["", "fast", "flex"]
 CodexApprovalsReviewer = Literal["user", "guardian_subagent"]
 CodexProjectKind = Literal["local", "remote"]
+AuthConfigSource = Literal["environment", "settings", "default"]
+SpeechConfigSource = Literal["environment", "settings", "default"]
+
+
+class StoredAuthSettings(BaseModel):
+    password_hash: str = ""
+    secret: str = ""
+    session_ttl_hours: int = Field(default=24 * 7, ge=1)
+
+    @field_validator("password_hash", "secret")
+    @classmethod
+    def strip_auth_strings(cls, value: str) -> str:
+        return value.strip()
+
+
+class StoredSpeechSettings(BaseModel):
+    model_dir: str = ""
+    provider: str = "cpu"
+    num_threads: int = Field(default=2, ge=1)
+
+    @field_validator("model_dir", "provider")
+    @classmethod
+    def strip_speech_strings(cls, value: str) -> str:
+        return value.strip()
 
 
 class StoredLLMSettings(BaseModel):
@@ -268,6 +292,8 @@ class CodexRemoteConnectionTestResponse(BaseModel):
 
 class WebSettings(BaseModel):
     llm: StoredLLMSettings = Field(default_factory=StoredLLMSettings)
+    auth: StoredAuthSettings = Field(default_factory=StoredAuthSettings)
+    speech: StoredSpeechSettings = Field(default_factory=StoredSpeechSettings)
     session_defaults: SessionDefaultsSettings = Field(
         default_factory=SessionDefaultsSettings
     )
@@ -354,12 +380,58 @@ class AuthSessionResponse(BaseModel):
     authenticated: bool = True
 
 
+class AuthConfigResponse(BaseModel):
+    enabled: bool = False
+    has_password: bool = False
+    has_secret: bool = False
+    session_ttl_hours: int = 24 * 7
+    password_source: AuthConfigSource = "default"
+    secret_source: AuthConfigSource = "default"
+    session_ttl_source: AuthConfigSource = "default"
+
+
 class AuthLoginRequest(BaseModel):
     password: str = ""
 
     @field_validator("password")
     @classmethod
     def strip_password(cls, value: str) -> str:
+        return value.strip()
+
+
+class SaveAuthConfigRequest(BaseModel):
+    enabled: bool = False
+    password: str | None = None
+    secret: str | None = None
+    session_ttl_hours: int = Field(default=24 * 7, ge=1)
+
+    @field_validator("password", "secret")
+    @classmethod
+    def strip_optional_auth_strings(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip()
+
+
+class SpeechConfigResponse(BaseModel):
+    model_dir: str = ""
+    provider: str = "cpu"
+    num_threads: int = 2
+    status: Literal["ready", "missing"] = "missing"
+    detail: str = ""
+    model_dir_source: SpeechConfigSource = "default"
+    provider_source: SpeechConfigSource = "default"
+    num_threads_source: SpeechConfigSource = "default"
+
+
+class SaveSpeechConfigRequest(BaseModel):
+    model_dir: str = ""
+    provider: str = "cpu"
+    num_threads: int = Field(default=2, ge=1)
+
+    @field_validator("model_dir", "provider")
+    @classmethod
+    def strip_speech_config_strings(cls, value: str) -> str:
         return value.strip()
 
 

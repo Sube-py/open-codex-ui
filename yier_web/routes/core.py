@@ -15,6 +15,7 @@ from yier_web.config import MCPValidationError
 from yier_web.event_stream import EventStreamItem
 from yier_web.schemas import (
     AuthLoginRequest,
+    AuthConfigResponse,
     AuthSessionResponse,
     HealthResponse,
     LLMHealth,
@@ -22,11 +23,14 @@ from yier_web.schemas import (
     MCPHealth,
     SaveAllowedRootsRequest,
     SaveAppSettingsRequest,
+    SaveAuthConfigRequest,
     SaveLLMRequest,
     SaveMCPConfigRequest,
+    SaveSpeechConfigRequest,
     SelectDirectoryRequest,
     SelectDirectoryResponse,
 )
+from yier_web.speech import SpeechRecognizerConfig
 
 EVENT_STREAM_PING_INTERVAL_SECONDS = 15.0
 
@@ -163,6 +167,46 @@ class ConfigController(Controller):
         config_service = _service(state, "config_service")
         runtime: dict[str, Any] = {}
         return Response(content=config_service.build_public_config(runtime).model_dump())
+
+    @get("/auth")
+    async def get_auth_config(self, state: State) -> AuthConfigResponse:
+        return _service(state, "auth_service").public_config()
+
+    @put("/auth")
+    async def save_auth_config(
+        self,
+        data: SaveAuthConfigRequest,
+        request: Request[Any, Any, Any],
+        state: State,
+    ) -> Response:
+        auth_service = _service(state, "auth_service")
+        try:
+            config = auth_service.save_config(data)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        return auth_service.build_authenticated_response(
+            request,
+            config.model_dump(),
+        )
+
+    @get("/speech")
+    async def get_speech_config(self, state: State) -> Response:
+        return Response(content=_service(state, "speech_service").public_config().model_dump())
+
+    @put("/speech")
+    async def save_speech_config(
+        self,
+        data: SaveSpeechConfigRequest,
+        state: State,
+    ) -> Response:
+        config_service = _service(state, "config_service")
+        config_service.save_speech_settings(data)
+        speech_service = _service(state, "speech_service")
+        speech_service.reconfigure(SpeechRecognizerConfig.from_settings(config_service))
+        return Response(content=speech_service.public_config().model_dump())
 
     @put("/llm")
     async def save_llm_config(self, data: SaveLLMRequest, state: State) -> Response:

@@ -8,10 +8,15 @@ import os
 from pathlib import PurePosixPath
 import secrets
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from litestar import Request
 from litestar.response import Redirect, Response
+
+from yier_web.schemas import AuthConfigResponse, SaveAuthConfigRequest
+
+if TYPE_CHECKING:
+    from yier_web.config import AppConfigService
 
 
 AUTH_COOKIE_NAME = "yier_auth_session"
@@ -103,15 +108,90 @@ def _urlsafe_b64decode(value: str) -> bytes:
 
 
 class AuthService:
-    def __init__(self) -> None:
-        self._password = os.getenv("YIER_AUTH_PASSWORD", "").strip()
-        self._password_hash = os.getenv("YIER_AUTH_PASSWORD_HASH", "").strip()
-        self._secret = os.getenv("YIER_AUTH_SECRET", "").strip()
-        self._codex_embed_token = os.getenv(CODEX_EMBED_TOKEN_ENV, "").strip()
-        self._session_ttl_seconds = (
-            _env_positive_int("YIER_AUTH_SESSION_TTL_HOURS", DEFAULT_SESSION_TTL_HOURS)
-            * 3600
+    def __init__(self, config_service: AppConfigService | None = None) -> None:
+        self._config_service = config_service
+        self._password = ""
+        self._password_hash = ""
+        self._secret = ""
+        self._password_source = "default"
+        self._secret_source = "default"
+        self._session_ttl_source = "default"
+        self._session_ttl_hours = DEFAULT_SESSION_TTL_HOURS
+        self.reload()
+
+    def reload(self) -> None:
+        stored = (
+            self._config_service.load_web_settings().auth
+            if self._config_service is not None
+            else None
         )
+        stored_password_hash = stored.password_hash if stored is not None else ""
+        stored_secret = stored.secret if stored is not None else ""
+        stored_ttl_hours = (
+            stored.session_ttl_hours
+            if stored is not None
+            else DEFAULT_SESSION_TTL_HOURS
+        )
+
+        env_password = os.getenv("YIER_AUTH_PASSWORD", "").strip()
+        env_password_hash = os.getenv("YIER_AUTH_PASSWORD_HASH", "").strip()
+        if env_password_hash or env_password:
+            self._password = env_password
+            self._password_hash = env_password_hash
+            self._password_source = "environment"
+        else:
+            self._password = ""
+            self._password_hash = stored_password_hash
+            self._password_source = "settings" if stored_password_hash else "default"
+
+        env_secret = os.getenv("YIER_AUTH_SECRET", "").strip()
+        if env_secret:
+            self._secret = env_secret
+            self._secret_source = "environment"
+        else:
+            self._secret = stored_secret
+            self._secret_source = "settings" if stored_secret else "default"
+
+        raw_env_ttl = os.getenv("YIER_AUTH_SESSION_TTL_HOURS", "").strip()
+        if raw_env_ttl:
+            self._session_ttl_hours = _env_positive_int(
+                "YIER_AUTH_SESSION_TTL_HOURS", DEFAULT_SESSION_TTL_HOURS
+            )
+            self._session_ttl_source = "environment"
+        else:
+            self._session_ttl_hours = stored_ttl_hours
+            self._session_ttl_source = (
+                "settings" if stored is not None else "default"
+            )
+        self._codex_embed_token = os.getenv(CODEX_EMBED_TOKEN_ENV, "").strip()
+        self._session_ttl_seconds = self._session_ttl_hours * 3600
+
+    def public_config(self) -> AuthConfigResponse:
+        return AuthConfigResponse(
+            enabled=self.enabled,
+            has_password=self.enabled,
+            has_secret=bool(self._secret),
+            session_ttl_hours=self._session_ttl_hours,
+            password_source=self._password_source,
+            secret_source=self._secret_source,
+            session_ttl_source=self._session_ttl_source,
+        )
+
+    def save_config(self, payload: SaveAuthConfigRequest) -> AuthConfigResponse:
+        if self._config_service is None:
+            raise RuntimeError("Authentication settings storage is unavailable.")
+
+        stored = self._config_service.load_web_settings().auth
+        environment_has_password = self._password_source == "environment"
+        requested_has_password = bool(payload.password or stored.password_hash)
+        if payload.enabled and not (
+            environment_has_password or requested_has_password
+        ):
+            raise ValueError("A password is required to enable authentication.")
+
+        self._config_service.save_auth_settings(payload)
+        self.reload()
+        return self.public_config()
 
     @property
     def enabled(self) -> bool:
@@ -169,7 +249,17 @@ class AuthService:
         return hmac.compare_digest(password.strip(), self._password)
 
     def build_login_response(self, request: Request) -> Response:
-        response = Response(content={"enabled": self.enabled, "authenticated": True})
+        return self.build_authenticated_response(
+            request,
+            {"enabled": self.enabled, "authenticated": True},
+        )
+
+    def build_authenticated_response(
+        self,
+        request: Request,
+        content: dict[str, Any],
+    ) -> Response:
+        response = Response(content=content)
         if self.enabled:
             response.set_cookie(
                 key=AUTH_COOKIE_NAME,
@@ -180,6 +270,8 @@ class AuthService:
                 httponly=True,
                 samesite="lax",
             )
+        else:
+            response.delete_cookie(AUTH_COOKIE_NAME, path="/")
         return response
 
     def build_logout_response(self, request: Request) -> Response:

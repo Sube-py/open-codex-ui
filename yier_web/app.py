@@ -34,7 +34,7 @@ from yier_web.routes import (
 from yier_web.routes.core import (
     wait_for_event_stream_item as wait_for_event_stream_item,
 )
-from yier_web.speech import SpeechRecognitionService
+from yier_web.speech import SpeechRecognitionService, SpeechRecognizerConfig
 
 
 @dataclass(slots=True)
@@ -134,8 +134,10 @@ def build_services(
             debug=_env_flag("YIER_DEBUG"),
         ),
         directory_picker_service=LocalDirectoryPickerService(),
-        auth_service=AuthService(),
-        speech_service=SpeechRecognitionService(),
+        auth_service=AuthService(config_service),
+        speech_service=SpeechRecognitionService(
+            config=SpeechRecognizerConfig.from_settings(config_service)
+        ),
     )
 
 

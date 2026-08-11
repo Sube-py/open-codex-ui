@@ -6,7 +6,12 @@ import os
 from pathlib import Path
 import sys
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from yier_web.schemas import SpeechConfigResponse
+
+if TYPE_CHECKING:
+    from yier_web.config import AppConfigService
 
 
 SPEECH_SAMPLE_RATE = 16_000
@@ -22,6 +27,9 @@ class SpeechRecognizerConfig:
     model_dir: Path
     provider: str = "cpu"
     num_threads: int = 2
+    model_dir_source: str = "default"
+    provider_source: str = "default"
+    num_threads_source: str = "default"
 
     @classmethod
     def from_env(cls) -> "SpeechRecognizerConfig":
@@ -31,6 +39,40 @@ class SpeechRecognizerConfig:
             model_dir=model_dir.expanduser().resolve(),
             provider=os.getenv("YIER_SHERPA_ONNX_PROVIDER", "cpu").strip() or "cpu",
             num_threads=_positive_env_int("YIER_SHERPA_ONNX_NUM_THREADS", 2),
+            model_dir_source="environment" if raw_model_dir else "default",
+            provider_source=(
+                "environment"
+                if os.getenv("YIER_SHERPA_ONNX_PROVIDER", "").strip()
+                else "default"
+            ),
+            num_threads_source=(
+                "environment"
+                if os.getenv("YIER_SHERPA_ONNX_NUM_THREADS", "").strip()
+                else "default"
+            ),
+        )
+
+    @classmethod
+    def from_settings(cls, config_service: AppConfigService) -> "SpeechRecognizerConfig":
+        settings = config_service.load_web_settings().speech
+        raw_model_dir = os.getenv("YIER_SHERPA_ONNX_MODEL_DIR", "").strip()
+        raw_provider = os.getenv("YIER_SHERPA_ONNX_PROVIDER", "").strip()
+        raw_num_threads = os.getenv("YIER_SHERPA_ONNX_NUM_THREADS", "").strip()
+        return cls(
+            model_dir=(
+                Path(raw_model_dir).expanduser().resolve()
+                if raw_model_dir
+                else config_service.resolve_speech_model_path(settings.model_dir)
+            ),
+            provider=raw_provider or settings.provider or "cpu",
+            num_threads=(
+                _positive_env_int("YIER_SHERPA_ONNX_NUM_THREADS", 2)
+                if raw_num_threads
+                else settings.num_threads
+            ),
+            model_dir_source="environment" if raw_model_dir else "settings",
+            provider_source="environment" if raw_provider else "settings",
+            num_threads_source="environment" if raw_num_threads else "settings",
         )
 
 
@@ -101,8 +143,28 @@ class SpeechRecognitionService:
     ) -> None:
         self.config = config or SpeechRecognizerConfig.from_env()
         self._recognizer = recognizer
+        self._has_injected_recognizer = recognizer is not None
         self._recognizer_lock = threading.Lock()
         self._load_lock = threading.Lock()
+
+    def reconfigure(self, config: SpeechRecognizerConfig) -> None:
+        with self._load_lock:
+            self.config = config
+            if not self._has_injected_recognizer:
+                self._recognizer = None
+
+    def public_config(self) -> SpeechConfigResponse:
+        status, detail = self._model_status()
+        return SpeechConfigResponse(
+            model_dir=str(self.config.model_dir),
+            provider=self.config.provider,
+            num_threads=self.config.num_threads,
+            status=status,
+            detail=detail,
+            model_dir_source=self.config.model_dir_source,
+            provider_source=self.config.provider_source,
+            num_threads_source=self.config.num_threads_source,
+        )
 
     def create_session(self) -> SpeechRecognitionSession:
         recognizer = self._get_recognizer()
@@ -123,18 +185,7 @@ class SpeechRecognitionService:
 
     def _load_recognizer(self) -> Any:
         model_dir = self.config.model_dir
-        if not model_dir.is_dir():
-            raise SpeechRecognitionUnavailable(
-                f"sherpa-onnx model directory not found: {model_dir}"
-            )
-
-        tokens = model_dir / "tokens.txt"
-        if not tokens.is_file():
-            raise SpeechRecognitionUnavailable(f"Model file not found: {tokens}")
-
-        encoder = _find_model_file(model_dir, "encoder")
-        decoder = _find_model_file(model_dir, "decoder")
-        joiner = _find_model_file(model_dir, "joiner")
+        tokens, encoder, decoder, joiner = _model_files(model_dir)
 
         try:
             import sherpa_onnx
@@ -156,6 +207,13 @@ class SpeechRecognitionService:
             provider=self.config.provider,
         )
 
+    def _model_status(self) -> tuple[str, str]:
+        try:
+            _model_files(self.config.model_dir)
+        except SpeechRecognitionUnavailable as exc:
+            return "missing", str(exc)
+        return "ready", "Model files are ready."
+
 
 def _find_model_file(model_dir: Path, prefix: str) -> Path:
     exact = model_dir / f"{prefix}.onnx"
@@ -170,6 +228,24 @@ def _find_model_file(model_dir: Path, prefix: str) -> Path:
         return candidates[0]
     raise SpeechRecognitionUnavailable(
         f"No {prefix}*.onnx model file found in {model_dir}"
+    )
+
+
+def _model_files(model_dir: Path) -> tuple[Path, Path, Path, Path]:
+    if not model_dir.is_dir():
+        raise SpeechRecognitionUnavailable(
+            f"sherpa-onnx model directory not found: {model_dir}"
+        )
+
+    tokens = model_dir / "tokens.txt"
+    if not tokens.is_file():
+        raise SpeechRecognitionUnavailable(f"Model file not found: {tokens}")
+
+    return (
+        tokens,
+        _find_model_file(model_dir, "encoder"),
+        _find_model_file(model_dir, "decoder"),
+        _find_model_file(model_dir, "joiner"),
     )
 
 

@@ -6,3 +6,47 @@ export interface AuthSessionResponse {
 export interface AuthLoginRequest {
   password: string
 }
+
+export type AuthConfigSource = 'environment' | 'settings' | 'default'
+
+export interface AuthConfigResponse {
+  enabled: boolean
+  has_password: boolean
+  has_secret: boolean
+  session_ttl_hours: number
+  password_source: AuthConfigSource
+  secret_source: AuthConfigSource
+  session_ttl_source: AuthConfigSource
+}
+
+export interface SaveAuthConfigRequest {
+  enabled: boolean
+  password: string | null
+  secret: string | null
+  session_ttl_hours: number
+}
+
+export type SpeechConfigSource = 'environment' | 'settings' | 'default'
+export type SpeechModelStatus = 'ready' | 'missing'
+
+export interface SpeechConfigResponse {
+  model_dir: string
+  provider: string
+  num_threads: number
+  status: SpeechModelStatus
+  detail: string
+  model_dir_source: SpeechConfigSource
+  provider_source: SpeechConfigSource
+  num_threads_source: SpeechConfigSource
+}
+
+export interface SaveSpeechConfigRequest {
+  model_dir: string
+  provider: string
+  num_threads: number
+}
+
+export interface SelectDirectoryResponse {
+  selected: boolean
+  project_path: string
+}

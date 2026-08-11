@@ -13,6 +13,7 @@ from yier_agents.src.config import YIERConfig
 from yier_web.schemas import (
     BackendHealth,
     BackendOption,
+    SaveAuthConfigRequest,
     CodexConfigPayload,
     CodexProjectDefinition,
     CodexProjectPayload,
@@ -22,6 +23,7 @@ from yier_web.schemas import (
     LLMConfigPayload,
     MCPRuntimeEntry,
     SaveAppSettingsRequest,
+    SaveSpeechConfigRequest,
     SaveLLMRequest,
     CodexThreadProjectAssignment,
     WebSettings,
@@ -107,6 +109,31 @@ class AppConfigService:
         if not settings.allowed_roots:
             settings.allowed_roots = self.default_allowed_roots()
 
+        self._write_json(self.settings_path, settings.model_dump())
+        return settings
+
+    def save_auth_settings(self, payload: SaveAuthConfigRequest) -> WebSettings:
+        from yier_web.auth import hash_password
+
+        settings = self.load_web_settings()
+        if payload.enabled:
+            if payload.password:
+                settings.auth.password_hash = hash_password(payload.password)
+        else:
+            settings.auth.password_hash = ""
+        if payload.secret is not None:
+            settings.auth.secret = payload.secret
+        settings.auth.session_ttl_hours = payload.session_ttl_hours
+        self._write_json(self.settings_path, settings.model_dump())
+        return settings
+
+    def save_speech_settings(self, payload: SaveSpeechConfigRequest) -> WebSettings:
+        settings = self.load_web_settings()
+        settings.speech.model_dir = str(
+            self.resolve_speech_model_path(payload.model_dir)
+        )
+        settings.speech.provider = payload.provider or "cpu"
+        settings.speech.num_threads = payload.num_threads
         self._write_json(self.settings_path, settings.model_dump())
         return settings
 
@@ -563,6 +590,12 @@ class AppConfigService:
             self._resolve_user_path(candidate) if candidate else self.project_root
         )
         return str(resolved.resolve())
+
+    def resolve_speech_model_path(self, raw_path: str | None) -> Path:
+        candidate = raw_path.strip() if isinstance(raw_path, str) else ""
+        if not candidate:
+            return (self.yier_root / "models" / "sherpa-onnx").resolve()
+        return self._resolve_user_path(candidate).resolve()
 
     def _finalize_web_settings(self, settings: WebSettings) -> WebSettings:
         settings.allowed_roots = self._normalize_allowed_roots(settings.allowed_roots)
