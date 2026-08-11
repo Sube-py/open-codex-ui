@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -238,7 +239,8 @@ def test_auth_settings_are_hashed_persisted_and_applied_immediately(
         assert verify_password("stored-password", stored_auth["password_hash"])
         assert stored_auth["secret"] == "stored-session-secret"
         assert stored_auth["session_ttl_hours"] == 12
-        assert settings_path.stat().st_mode & 0o777 == 0o600
+        if os.name == "posix":
+            assert settings_path.stat().st_mode & 0o777 == 0o600
 
         client.post("/api/auth/logout", json={})
         login_response = client.post(
