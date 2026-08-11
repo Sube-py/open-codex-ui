@@ -455,102 +455,111 @@ async function copyThreadId(threadId: string) {
           </div>
 
           <div v-show="isProjectExpanded(project)" class="grid gap-0.5">
-            <article
-              v-for="thread in visibleThreads(project)"
-              :key="thread.thread_id"
-              class="group/thread grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border py-1.5 pl-[2.15rem] pr-2 transition"
-              data-codex-thread-row
-              :class="
-                thread.thread_id === activeThreadId
-                  ? 'border-[color:var(--app-focus)] bg-[color:var(--app-selected)]'
-                  : 'border-transparent hover:border-[color:var(--app-focus)] hover:bg-[color:var(--app-selected)] focus-within:border-[color:var(--app-focus)] focus-within:bg-[color:var(--app-selected)]'
-              "
+            <TransitionGroup
+              tag="div"
+              class="grid gap-0.5"
+              enter-active-class="transition duration-[280ms] ease-out motion-reduce:transition-none"
+              enter-from-class="-translate-y-1.5 opacity-0 motion-reduce:translate-y-0 motion-reduce:opacity-100"
+              enter-to-class="translate-y-0 opacity-100"
+              move-class="transition-transform duration-[280ms] ease-out motion-reduce:transition-none"
             >
-              <InputText
-                v-if="editingThreadId === thread.thread_id"
-                v-model="renameDraft"
-                class="h-8 min-w-0 text-sm"
-                data-codex-thread-rename-input
-                :disabled="busy"
-                @click.stop
-                @dblclick.stop
-                @keydown.enter.prevent="submitRename(thread)"
-                @keydown.esc.prevent="cancelRename"
-                @blur="submitRename(thread)"
-              />
-              <button
-                v-else
-                type="button"
-                class="min-w-0 truncate text-left text-sm disabled:cursor-wait disabled:opacity-60"
+              <article
+                v-for="thread in visibleThreads(project)"
+                :key="thread.thread_id"
+                class="group/thread grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border py-1.5 pl-[2.15rem] pr-2 transition"
+                data-codex-thread-row
                 :class="
                   thread.thread_id === activeThreadId
-                    ? 'font-semibold text-[color:var(--app-text)]'
-                    : 'font-medium text-[color:var(--app-text-soft)] group-hover/thread:text-[color:var(--app-text)] group-focus-within/thread:text-[color:var(--app-text)]'
+                    ? 'border-[color:var(--app-focus)] bg-[color:var(--app-selected)]'
+                    : 'border-transparent hover:border-[color:var(--app-focus)] hover:bg-[color:var(--app-selected)] focus-within:border-[color:var(--app-focus)] focus-within:bg-[color:var(--app-selected)]'
                 "
-                data-codex-thread-name
-                :title="threadTitle(thread)"
-                :disabled="busy || openingThreadId === thread.thread_id"
-                @click="emit('selectThread', thread.thread_id)"
-                @dblclick.stop="beginRename(thread)"
               >
-                {{ threadTitle(thread) }}
-              </button>
-
-              <div class="relative h-5 w-[3.25rem] shrink-0">
-                <span
-                  v-if="isThreadWorking(thread)"
-                  class="absolute inset-y-0 right-0 inline-flex h-5 w-5 items-center justify-center text-[color:var(--app-text-soft)] group-hover/thread:hidden group-focus-within/thread:hidden"
-                  aria-label="Thread is working"
-                  data-codex-thread-working-indicator
-                >
-                  <i class="pi pi-spinner pi-spin text-[0.68rem]"></i>
-                </span>
-                <span
+                <InputText
+                  v-if="editingThreadId === thread.thread_id"
+                  v-model="renameDraft"
+                  class="h-8 min-w-0 text-sm"
+                  data-codex-thread-rename-input
+                  :disabled="busy"
+                  @click.stop
+                  @dblclick.stop
+                  @keydown.enter.prevent="submitRename(thread)"
+                  @keydown.esc.prevent="cancelRename"
+                  @blur="submitRename(thread)"
+                />
+                <button
                   v-else
-                  class="absolute inset-y-0 right-0 inline-flex max-w-full items-center truncate text-[0.72rem] font-semibold text-[color:var(--app-text-soft)] group-hover/thread:hidden group-focus-within/thread:hidden"
-                  data-codex-thread-time
+                  type="button"
+                  class="min-w-0 truncate text-left text-sm disabled:cursor-wait disabled:opacity-60"
+                  :class="
+                    thread.thread_id === activeThreadId
+                      ? 'font-semibold text-[color:var(--app-text)]'
+                      : 'font-medium text-[color:var(--app-text-soft)] group-hover/thread:text-[color:var(--app-text)] group-focus-within/thread:text-[color:var(--app-text)]'
+                  "
+                  data-codex-thread-name
+                  :title="threadTitle(thread)"
+                  :disabled="busy || openingThreadId === thread.thread_id"
+                  @click="emit('selectThread', thread.thread_id)"
+                  @dblclick.stop="beginRename(thread)"
                 >
-                  {{ compactTimestamp(thread.updated_at || thread.started_at) }}
-                </span>
+                  {{ threadTitle(thread) }}
+                </button>
 
-                <div
-                  class="absolute inset-y-0 right-0 hidden h-5 shrink-0 items-center gap-0.5 group-hover/thread:flex group-focus-within/thread:flex"
-                >
-                  <Button
-                    icon="pi pi-ellipsis-h"
-                    severity="secondary"
-                    text
-                    rounded
-                    size="small"
-                    class="!h-5 !w-5 !min-w-5 !p-0 !text-[0.68rem]"
-                    :aria-label="`Open Codex thread actions ${thread.thread_id}`"
-                    data-codex-thread-actions
-                    :disabled="busy"
-                    @click.stop="toggleThreadMenu($event, thread)"
-                  />
-                  <Button
-                    v-if="!isThreadWorking(thread)"
-                    icon="pi pi-inbox"
-                    severity="secondary"
-                    text
-                    rounded
-                    size="small"
-                    class="!h-5 !w-5 !min-w-5 !p-0 !text-[0.68rem]"
-                    aria-label="Archive Codex thread"
-                    data-codex-archive-thread
-                    :disabled="busy || archivingThreadId === thread.thread_id"
-                    @click.stop="emit('archiveThread', thread.thread_id)"
-                  />
+                <div class="relative h-5 w-[3.25rem] shrink-0">
                   <span
-                    v-else
-                    class="inline-flex h-5 w-5 items-center justify-center text-[color:var(--app-text-soft)]"
+                    v-if="isThreadWorking(thread)"
+                    class="absolute inset-y-0 right-0 inline-flex h-5 w-5 items-center justify-center text-[color:var(--app-text-soft)] group-hover/thread:hidden group-focus-within/thread:hidden"
                     aria-label="Thread is working"
+                    data-codex-thread-working-indicator
                   >
                     <i class="pi pi-spinner pi-spin text-[0.68rem]"></i>
                   </span>
+                  <span
+                    v-else
+                    class="absolute inset-y-0 right-0 inline-flex max-w-full items-center truncate text-[0.72rem] font-semibold text-[color:var(--app-text-soft)] group-hover/thread:hidden group-focus-within/thread:hidden"
+                    data-codex-thread-time
+                  >
+                    {{ compactTimestamp(thread.updated_at || thread.started_at) }}
+                  </span>
+
+                  <div
+                    class="absolute inset-y-0 right-0 hidden h-5 shrink-0 items-center gap-0.5 group-hover/thread:flex group-focus-within/thread:flex"
+                  >
+                    <Button
+                      icon="pi pi-ellipsis-h"
+                      severity="secondary"
+                      text
+                      rounded
+                      size="small"
+                      class="!h-5 !w-5 !min-w-5 !p-0 !text-[0.68rem]"
+                      :aria-label="`Open Codex thread actions ${thread.thread_id}`"
+                      data-codex-thread-actions
+                      :disabled="busy"
+                      @click.stop="toggleThreadMenu($event, thread)"
+                    />
+                    <Button
+                      v-if="!isThreadWorking(thread)"
+                      icon="pi pi-inbox"
+                      severity="secondary"
+                      text
+                      rounded
+                      size="small"
+                      class="!h-5 !w-5 !min-w-5 !p-0 !text-[0.68rem]"
+                      aria-label="Archive Codex thread"
+                      data-codex-archive-thread
+                      :disabled="busy || archivingThreadId === thread.thread_id"
+                      @click.stop="emit('archiveThread', thread.thread_id)"
+                    />
+                    <span
+                      v-else
+                      class="inline-flex h-5 w-5 items-center justify-center text-[color:var(--app-text-soft)]"
+                      aria-label="Thread is working"
+                    >
+                      <i class="pi pi-spinner pi-spin text-[0.68rem]"></i>
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </article>
+              </article>
+            </TransitionGroup>
             <Button
               v-if="hiddenThreadCount(project) > 0"
               icon="pi pi-angle-down"
