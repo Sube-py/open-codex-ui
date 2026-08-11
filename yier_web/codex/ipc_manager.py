@@ -51,6 +51,7 @@ from yier_web.schemas import (
     CodexFilesystemResponse,
     CodexNativeSessionSummary,
     CodexProjectGroup,
+    CodexRecentThreadsPage,
     CodexRemoteConnection,
     CodexRemoteConnectionStatus,
     CodexRemoteConnectionTestResponse,
@@ -62,6 +63,8 @@ from yier_web.schemas import (
 logger = logging.getLogger(__name__)
 CODEX_POSIX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
 CODEX_CONFIG_FILE = "config.toml"
+CODEX_PROJECT_THREAD_PAGE_SIZE = 100
+CODEX_RECENT_THREAD_PAGE_SIZE = 20
 
 CodexSubscriberQueue = CodexSessionEventQueue
 CodexSessionFactory = Callable[..., CodexIpcSession]
@@ -73,6 +76,13 @@ class ManagedCodexThread:
     watcher_task: asyncio.Task[None]
     event_watcher_task: asyncio.Task[None] | None = None
     state: JsonDict | None = None
+
+
+@dataclass(slots=True)
+class WorkspaceHostThreads:
+    projects: ThreadListResponse
+    recents: ThreadListResponse
+    recent_next_cursor: str | None = None
 
 
 def _compact_text(value: object, *, limit: int = 72) -> str:
@@ -223,11 +233,31 @@ class CodexIpcManager:
                 if connection.auto_connect
             ),
         ]
+        project_paths_by_host = {
+            host_id: list(
+                dict.fromkeys(
+                    root_path
+                    for project in settings.projects
+                    if project.host_id == host_id
+                    for root_path in project.root_paths
+                )
+            )
+            for host_id in host_ids
+        }
+        projectless_thread_ids = set(settings.projectless_thread_ids)
         results = await asyncio.gather(
-            *(self._list_workspace_host(host_id) for host_id in host_ids),
+            *(
+                self._list_workspace_host(
+                    host_id,
+                    project_paths=project_paths_by_host[host_id],
+                    projectless_thread_ids=projectless_thread_ids,
+                )
+                for host_id in host_ids
+            ),
             return_exceptions=True,
         )
         summaries: list[CodexNativeSessionSummary] = []
+        recent_threads_next_cursors: dict[str, str] = {}
         for host_id, result in zip(host_ids, results, strict=True):
             connection_id = self._connection_id_from_host(host_id)
             if isinstance(result, BaseException):
@@ -247,21 +277,110 @@ class CodexIpcManager:
                     "connected",
                     "Connected",
                 )
-            summaries.extend(self._summaries_from_threads(result, host_id=host_id))
+            summaries.extend(
+                self._summaries_from_threads(result.projects, host_id=host_id)
+            )
+            summaries.extend(
+                self._summaries_from_threads(result.recents, host_id=host_id)
+            )
+            if result.recent_next_cursor:
+                recent_threads_next_cursors[host_id] = result.recent_next_cursor
 
         workspace = self._workspace_from_summaries(summaries, settings=settings)
+        workspace.recent_threads_next_cursors = recent_threads_next_cursors
         remote = self.remote_connections()
         workspace.remote_connections = remote.connections
         workspace.active_remote_connection_id = remote.active_connection_id
         workspace.remote_connection_statuses = remote.statuses
         return workspace
 
-    async def _list_workspace_host(self, host_id: str) -> ThreadListResponse:
+    async def _list_workspace_host(
+        self,
+        host_id: str,
+        *,
+        project_paths: list[str],
+        projectless_thread_ids: set[str],
+    ) -> WorkspaceHostThreads:
         try:
-            return await asyncio.wait_for(self.list_threads(host_id), timeout=5)
+            projects = (
+                await asyncio.wait_for(
+                    self.list_threads(host_id, cwd=project_paths), timeout=5
+                )
+                if project_paths
+                else ThreadListResponse(data=[])
+            )
+            recents, next_cursor = await asyncio.wait_for(
+                self._list_recent_threads_host(
+                    host_id,
+                    projectless_thread_ids=projectless_thread_ids,
+                ),
+                timeout=5,
+            )
+            return WorkspaceHostThreads(
+                projects=projects,
+                recents=recents,
+                recent_next_cursor=next_cursor,
+            )
         except Exception:
             await self._close_workspace_session(host_id)
             raise
+
+    async def list_recent_threads(
+        self,
+        cursors: dict[str, str],
+    ) -> CodexRecentThreadsPage:
+        settings = self.config_service.load_web_settings().codex
+        available_host_ids = {
+            "local",
+            *(
+                self._host_id_for_connection(connection.id)
+                for connection in settings.remote_connections
+                if connection.auto_connect
+            ),
+        }
+        requested_cursors = {
+            host_id: cursor
+            for host_id, cursor in cursors.items()
+            if host_id in available_host_ids and cursor
+        }
+        results = await asyncio.gather(
+            *(
+                self._list_recent_threads_host(
+                    host_id,
+                    cursor=cursor,
+                    projectless_thread_ids=set(settings.projectless_thread_ids),
+                )
+                for host_id, cursor in requested_cursors.items()
+            ),
+            return_exceptions=True,
+        )
+        threads: list[CodexNativeSessionSummary] = []
+        next_cursors: dict[str, str] = {}
+        for (host_id, cursor), result in zip(
+            requested_cursors.items(), results, strict=True
+        ):
+            if isinstance(result, BaseException):
+                await self._close_workspace_session(host_id)
+                next_cursors[host_id] = cursor
+                logger.warning(
+                    "Unable to list recent Codex threads for %s: %s",
+                    host_id,
+                    result,
+                )
+                continue
+            response, next_cursor = result
+            threads.extend(self._summaries_from_threads(response, host_id=host_id))
+            if next_cursor:
+                next_cursors[host_id] = next_cursor
+        threads.sort(
+            key=lambda item: (
+                _summary_used_at(item),
+                item.started_at,
+                item.thread_id,
+            ),
+            reverse=True,
+        )
+        return CodexRecentThreadsPage(threads=threads, next_cursors=next_cursors)
 
     def remote_connections(self) -> CodexRemoteConnectionsResponse:
         settings = self.config_service.load_web_settings().codex
@@ -414,7 +533,12 @@ class CodexIpcManager:
         )
         return CodexRemoteConnectionTestResponse(ok=ok, detail=detail)
 
-    async def list_threads(self, host_id: str = "local") -> ThreadListResponse:
+    async def list_threads(
+        self,
+        host_id: str = "local",
+        *,
+        cwd: str | list[str] | None = None,
+    ) -> ThreadListResponse:
         session = await self._ensure_workspace_session(host_id)
         threads: list[Thread] = []
         cursor: str | None = None
@@ -422,10 +546,12 @@ class CodexIpcManager:
         while True:
             params: JsonDict = {
                 "archived": False,
-                "limit": 100,
+                "limit": CODEX_PROJECT_THREAD_PAGE_SIZE,
                 "sort_key": "updated_at",
                 "sort_direction": "desc",
             }
+            if cwd:
+                params["cwd"] = cwd
             if cursor:
                 params["cursor"] = cursor
             response = await session.list_threads(params)
@@ -436,6 +562,41 @@ class CodexIpcManager:
             seen_cursors.add(next_cursor)
             cursor = next_cursor
         return ThreadListResponse(data=threads)
+
+    async def _list_recent_threads_host(
+        self,
+        host_id: str,
+        *,
+        projectless_thread_ids: set[str],
+        cursor: str | None = None,
+    ) -> tuple[ThreadListResponse, str | None]:
+        session = await self._ensure_workspace_session(host_id)
+        threads: list[Thread] = []
+        current_cursor = cursor
+        seen_cursors = {cursor} if cursor else set()
+        while len(threads) < CODEX_RECENT_THREAD_PAGE_SIZE:
+            params: JsonDict = {
+                "archived": False,
+                "limit": CODEX_RECENT_THREAD_PAGE_SIZE - len(threads),
+                "sort_key": "updated_at",
+                "sort_direction": "desc",
+            }
+            if current_cursor:
+                params["cursor"] = current_cursor
+            response = await session.list_threads(params)
+            threads.extend(
+                thread
+                for thread in response.data
+                if not thread.ephemeral and thread.id in projectless_thread_ids
+            )
+            next_cursor = response.next_cursor
+            if not next_cursor or next_cursor in seen_cursors:
+                return ThreadListResponse(data=threads), None
+            if len(threads) >= CODEX_RECENT_THREAD_PAGE_SIZE:
+                return ThreadListResponse(data=threads), next_cursor
+            seen_cursors.add(next_cursor)
+            current_cursor = next_cursor
+        return ThreadListResponse(data=threads), current_cursor
 
     async def list_filesystem(
         self,
@@ -1722,6 +1883,7 @@ print(json.dumps({
             project.id: [] for project in settings.projects
         }
         recent_threads: list[CodexNativeSessionSummary] = []
+        recent_thread_keys: set[tuple[str, str]] = set()
         projects_by_id = {project.id: project for project in settings.projects}
         projectless_thread_ids = set(settings.projectless_thread_ids)
         for summary in summaries:
@@ -1730,7 +1892,10 @@ print(json.dumps({
             if project is not None and project.host_id != summary.host_id:
                 project = None
             if project is None and summary.thread_id in projectless_thread_ids:
-                recent_threads.append(summary)
+                recent_key = (summary.host_id, summary.thread_id)
+                if recent_key not in recent_thread_keys:
+                    recent_threads.append(summary)
+                    recent_thread_keys.add(recent_key)
                 continue
             if project is None:
                 project = next(

@@ -254,7 +254,7 @@ describe('CodexSidebar', () => {
     expect(wrapper.emitted('startThread')).toEqual([['/tmp/alpha', 'local']])
   })
 
-  it('renders projects before projectless Chats and settings at the sidebar bottom', () => {
+  it('renders projects before Recents and settings at the sidebar bottom', () => {
     const wrapper = mountSidebar({
       workspace: {
         ...workspace(),
@@ -264,11 +264,11 @@ describe('CodexSidebar', () => {
 
     const projectButtons = wrapper.findAll('[data-codex-project-toggle]')
     expect(projectButtons.map((button) => button.text())).toEqual(
-      expect.arrayContaining(['alpha', 'beta', 'Chats']),
+      expect.arrayContaining(['alpha', 'beta', 'Recents']),
     )
     expect(projectButtons[0]?.text()).toContain('alpha')
     expect(projectButtons[1]?.text()).toContain('beta')
-    expect(projectButtons[2]?.text()).toContain('Chats')
+    expect(projectButtons[2]?.text()).toContain('Recents')
     expect(wrapper.text()).toContain('thread-recent')
     expect(wrapper.find('[data-codex-add-remote]').exists()).toBe(false)
     expect(wrapper.get('[data-codex-open-settings]').text()).toContain('Settings')
@@ -298,21 +298,43 @@ describe('CodexSidebar', () => {
     })
 
     const projectSection = wrapper.get('[data-codex-section-key="local::/tmp/large"]')
-    const chatsSection = wrapper.get('[data-codex-section-key="chats"]')
-    expect(projectSection.findAll('[data-codex-thread-row]')).toHaveLength(11)
+    const recentsSection = wrapper.get('[data-codex-section-key="recents"]')
+    expect(projectSection.findAll('[data-codex-thread-row]')).toHaveLength(6)
     expect(projectSection.text()).toContain('project-thread-15')
-    expect(projectSection.text()).not.toContain('project-thread-11')
-    expect(projectSection.get('[data-codex-show-more-threads]').text()).toContain('Show 4 more')
-    expect(chatsSection.findAll('[data-codex-thread-row]')).toHaveLength(50)
-    expect(chatsSection.get('[data-codex-show-more-threads]').text()).toContain('Show 2 more')
+    expect(projectSection.text()).not.toContain('project-thread-6')
+    expect(projectSection.get('[data-codex-show-more-threads]').text()).toContain('Show more')
+    expect(recentsSection.findAll('[data-codex-thread-row]')).toHaveLength(52)
+    expect(recentsSection.find('[data-codex-show-more-threads]').exists()).toBe(false)
 
     await projectSection.get('[data-codex-show-more-threads]').trigger('click')
-    await chatsSection.get('[data-codex-show-more-threads]').trigger('click')
+
+    expect(projectSection.findAll('[data-codex-thread-row]')).toHaveLength(11)
+    expect(projectSection.find('[data-codex-show-more-threads]').exists()).toBe(true)
+
+    await projectSection.get('[data-codex-show-more-threads]').trigger('click')
 
     expect(projectSection.findAll('[data-codex-thread-row]')).toHaveLength(15)
     expect(projectSection.find('[data-codex-show-more-threads]').exists()).toBe(false)
-    expect(chatsSection.findAll('[data-codex-thread-row]')).toHaveLength(52)
-    expect(chatsSection.find('[data-codex-show-more-threads]').exists()).toBe(false)
+    expect(recentsSection.findAll('[data-codex-thread-row]')).toHaveLength(52)
+  })
+
+  it('requests the next Recents page from the workspace', async () => {
+    const wrapper = mountSidebar({
+      workspace: {
+        ...workspace(),
+        recent_threads: [thread('thread-recent', 'other', '/tmp/other', 40)],
+        recent_threads_next_cursors: { local: 'cursor-2' },
+      },
+    })
+    const button = wrapper.get('[data-codex-show-more-recents]')
+
+    expect(button.text()).toContain('Show more')
+    await button.trigger('click')
+
+    expect(wrapper.emitted('showMoreRecents')).toHaveLength(1)
+
+    await wrapper.setProps({ loadingMoreRecents: true })
+    expect(wrapper.get('[data-codex-show-more-recents]').attributes('disabled')).toBeDefined()
   })
 
   it('creates and manages SSH remote connections without switching the thread list', async () => {

@@ -13,6 +13,7 @@ import type {
   CodexPendingRequest,
   CodexPromptSubmission,
   CodexQueuedFollowup,
+  CodexRecentThreadsPage,
   CodexRemoteConnectionsResponse,
   CodexSkillSummary,
   CodexSocketStatus,
@@ -79,9 +80,22 @@ function emptyWorkspace(): CodexWorkspaceResponse {
   return {
     projects: [],
     recent_threads: [],
+    recent_threads_next_cursors: {},
     paired_editors: [],
     remote_connection_statuses: {},
   }
+}
+
+function normalizeStringRecord(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] =>
+        typeof entry[0] === 'string' && typeof entry[1] === 'string' && Boolean(entry[1]),
+    ),
+  )
 }
 
 function normalizeWorkspace(value: unknown): CodexWorkspaceResponse {
@@ -92,6 +106,7 @@ function normalizeWorkspace(value: unknown): CodexWorkspaceResponse {
   return {
     projects: Array.isArray(record.projects) ? record.projects : [],
     recent_threads: Array.isArray(record.recent_threads) ? record.recent_threads : [],
+    recent_threads_next_cursors: normalizeStringRecord(record.recent_threads_next_cursors),
     paired_editors: Array.isArray(record.paired_editors) ? record.paired_editors : [],
     remote_connections: Array.isArray(record.remote_connections) ? record.remote_connections : [],
     active_remote_connection_id:
@@ -350,6 +365,7 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
   const isCommandBusy = ref(false)
   const isRenaming = ref(false)
   const isArchiving = ref(false)
+  const isLoadingMoreRecentThreads = ref(false)
   const archivingThreadId = ref('')
   const forkingThreadId = ref('')
   const projectPathDraft = ref('')
@@ -621,6 +637,41 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     const payload = await socket.sendCommand<CodexWorkspaceResponse>('list_threads')
     workspace.value = normalizeWorkspace(payload)
     return workspace.value
+  }
+
+  async function loadMoreRecentThreads() {
+    const cursors = workspace.value.recent_threads_next_cursors ?? {}
+    if (isLoadingMoreRecentThreads.value || !Object.keys(cursors).length) {
+      return
+    }
+    isLoadingMoreRecentThreads.value = true
+    errorMessage.value = ''
+    try {
+      const page = await socket.sendCommand<CodexRecentThreadsPage>('list_recent_threads', {
+        cursors,
+      })
+      const incomingThreads = Array.isArray(page?.threads) ? page.threads : []
+      const existingThreads = workspace.value.recent_threads ?? []
+      const projectThreadIds = new Set(
+        workspace.value.projects.flatMap((project) =>
+          project.sessions.map((thread) => thread.thread_id),
+        ),
+      )
+      const mergedThreads = [...existingThreads, ...incomingThreads].filter(
+        (thread, index, threads) =>
+          !projectThreadIds.has(thread.thread_id) &&
+          threads.findIndex((candidate) => candidate.thread_id === thread.thread_id) === index,
+      )
+      workspace.value = {
+        ...workspace.value,
+        recent_threads: mergedThreads,
+        recent_threads_next_cursors: normalizeStringRecord(page?.next_cursors),
+      }
+    } catch (error) {
+      errorMessage.value = toErrorMessage(error)
+    } finally {
+      isLoadingMoreRecentThreads.value = false
+    }
   }
 
   async function refreshRemoteConnections() {
@@ -1234,11 +1285,13 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     forkingThreadId,
     forkThread,
     listSkills,
+    loadMoreRecentThreads,
     isActiveThreadLoading,
     isActiveTurnInProgress,
     isArchiving,
     isBooting,
     isCommandBusy,
+    isLoadingMoreRecentThreads,
     isRenaming,
     openingThreadId,
     pendingUserInputRequests,

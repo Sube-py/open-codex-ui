@@ -48,6 +48,19 @@ def _payload_text_list(payload: dict[str, Any], key: str) -> list[str]:
     ]
 
 
+def _payload_text_dict(payload: dict[str, Any], key: str) -> dict[str, str]:
+    value = payload.get(key)
+    if not isinstance(value, dict):
+        return {}
+    return {
+        item_key: normalized
+        for item_key, item_value in value.items()
+        if isinstance(item_key, str)
+        and isinstance(item_value, str)
+        and (normalized := item_value.strip())
+    }
+
+
 @dataclass(slots=True)
 class CodexWsCommandContext:
     manager: CodexIpcManager
@@ -79,6 +92,14 @@ async def _publish_workspace(
 class ListThreadsCommandStrategy(CodexWsCommandStrategy):
     async def execute(self, context: CodexWsCommandContext) -> dict[str, Any]:
         return await _publish_workspace(context.manager, context.outbox)
+
+
+class ListRecentThreadsCommandStrategy(CodexWsCommandStrategy):
+    async def execute(self, context: CodexWsCommandContext) -> dict[str, Any]:
+        page = await context.manager.list_recent_threads(
+            _payload_text_dict(context.payload, "cursors")
+        )
+        return page.model_dump(mode="json")
 
 
 class StartThreadCommandStrategy(CodexWsCommandStrategy):
@@ -306,6 +327,7 @@ class CodexWsCommandStrategyFactory:
     def __init__(self) -> None:
         self.strategies: dict[str, CodexWsCommandStrategy] = {
             "list_threads": ListThreadsCommandStrategy(),
+            "list_recent_threads": ListRecentThreadsCommandStrategy(),
             "start_thread": StartThreadCommandStrategy(),
             "subscribe_thread": SubscribeThreadCommandStrategy(),
             "subscribe_thread_delta": SubscribeThreadDeltaCommandStrategy(),

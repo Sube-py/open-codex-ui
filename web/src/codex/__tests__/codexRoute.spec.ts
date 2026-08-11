@@ -27,7 +27,9 @@ const workspaceMock: {
   isArchiving: false,
   isBooting: false,
   isCommandBusy: false,
+  isLoadingMoreRecentThreads: false,
   isRenaming: false,
+  loadMoreRecentThreads: vi.fn(),
   openingThreadId: '',
   projectPathDraft: '',
   queuedFollowups: [],
@@ -233,5 +235,20 @@ describe('Codex route separation', () => {
     await desktopSidebar.vm.$emit('rename-thread', 'thread-a', 'Renamed')
 
     expect(workspaceMock.renameThread).toHaveBeenCalledWith('thread-a', 'Renamed')
+  })
+
+  it('passes Recents pagination events to the Codex workspace', async () => {
+    const router = createTestRouter()
+    await router.push('/codex')
+    await router.isReady()
+    const wrapper = mountCodexView(router)
+    const sidebar = wrapper.findAllComponents({ name: 'CodexSidebar' })[0]
+
+    if (!sidebar) {
+      throw new Error('Expected Codex desktop sidebar to render.')
+    }
+    await sidebar.vm.$emit('show-more-recents')
+
+    expect(workspaceMock.loadMoreRecentThreads).toHaveBeenCalledTimes(1)
   })
 })

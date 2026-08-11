@@ -576,7 +576,7 @@ def test_codex_manager_keeps_separate_sessions_alive(tmp_path: Path) -> None:
         }
         assert factory.workspace_session().list_threads_calls[-1] == {
             "archived": False,
-            "limit": 100,
+            "limit": 20,
             "sort_key": "updated_at",
             "sort_direction": "desc",
         }
@@ -686,7 +686,7 @@ def test_codex_manager_paginates_the_complete_thread_list(tmp_path: Path) -> Non
             ),
         ]
 
-        response = await manager.list_threads()
+        response = await manager.list_threads(cwd=["/tmp/page-1", "/tmp/page-2"])
 
         assert [thread.id for thread in response.data] == [
             "thread-page-1",
@@ -698,15 +698,151 @@ def test_codex_manager_paginates_the_complete_thread_list(tmp_path: Path) -> Non
                 "limit": 100,
                 "sort_key": "updated_at",
                 "sort_direction": "desc",
+                "cwd": ["/tmp/page-1", "/tmp/page-2"],
             },
             {
                 "archived": False,
                 "limit": 100,
                 "sort_key": "updated_at",
                 "sort_direction": "desc",
+                "cwd": ["/tmp/page-1", "/tmp/page-2"],
                 "cursor": "cursor-2",
             },
         ]
+        await manager.stop()
+
+    asyncio.run(scenario())
+
+
+def test_codex_workspace_loads_all_project_threads_and_pages_recents(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        project_path = str((tmp_path / "project-a").resolve())
+        config_service = AppConfigService(
+            project_root=tmp_path / "project",
+            home_dir=tmp_path / "home",
+        )
+        config_service.save_codex_project(
+            CodexProjectPayload(
+                name="Alpha",
+                kind="local",
+                host_id="local",
+                project_path=project_path,
+            )
+        )
+        recent_ids = [f"recent-{index}" for index in range(21)]
+        for thread_id in recent_ids:
+            config_service.assign_codex_thread_project(
+                thread_id,
+                host_id="local",
+                cwd="/tmp/projectless",
+            )
+
+        factory = FakeSessionFactory()
+        manager = CodexIpcManager(
+            config_service=config_service,
+            event_broker=EventStreamBroker(),
+            session_factory=factory,
+        )
+        session = await manager._ensure_workspace_session("local")
+        session.list_threads_responses = [
+            ThreadListResponse(
+                data=[fake_thread("project-1", project_path)],
+                next_cursor="project-2",
+            ),
+            ThreadListResponse(
+                data=[fake_thread("project-2", project_path)],
+            ),
+            ThreadListResponse(
+                data=[
+                    fake_thread(thread_id, "/tmp/projectless")
+                    for thread_id in recent_ids[:20]
+                ],
+                next_cursor="recent-2",
+            ),
+        ]
+
+        workspace = await manager.workspace()
+
+        assert [thread.thread_id for thread in workspace.projects[0].sessions] == [
+            "project-2",
+            "project-1",
+        ]
+        assert [thread.thread_id for thread in workspace.recent_threads] == sorted(
+            recent_ids[:20], reverse=True
+        )
+        assert workspace.recent_threads_next_cursors == {"local": "recent-2"}
+        assert session.list_threads_calls == [
+            {
+                "archived": False,
+                "limit": 100,
+                "sort_key": "updated_at",
+                "sort_direction": "desc",
+                "cwd": [project_path],
+            },
+            {
+                "archived": False,
+                "limit": 100,
+                "sort_key": "updated_at",
+                "sort_direction": "desc",
+                "cwd": [project_path],
+                "cursor": "project-2",
+            },
+            {
+                "archived": False,
+                "limit": 20,
+                "sort_key": "updated_at",
+                "sort_direction": "desc",
+            },
+        ]
+
+        session.list_threads_responses = [
+            ThreadListResponse(
+                data=[fake_thread(recent_ids[20], "/tmp/projectless")],
+            )
+        ]
+        page = await manager.list_recent_threads(workspace.recent_threads_next_cursors)
+
+        assert [thread.thread_id for thread in page.threads] == [recent_ids[20]]
+        assert page.next_cursors == {}
+        assert session.list_threads_calls[-1] == {
+            "archived": False,
+            "limit": 20,
+            "sort_key": "updated_at",
+            "sort_direction": "desc",
+            "cursor": "recent-2",
+        }
+        await manager.stop()
+
+    asyncio.run(scenario())
+
+
+def test_codex_recent_threads_preserve_failed_host_cursors(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        config_service = AppConfigService(
+            project_root=tmp_path / "project",
+            home_dir=tmp_path / "home",
+        )
+        config_service.assign_codex_thread_project(
+            "recent-1",
+            host_id="local",
+            cwd="/tmp/projectless",
+        )
+        factory = FakeSessionFactory()
+        manager = CodexIpcManager(
+            config_service=config_service,
+            event_broker=EventStreamBroker(),
+            session_factory=factory,
+        )
+        session = await manager._ensure_workspace_session("local")
+        session.list_threads_error = RuntimeError("Connection interrupted")
+
+        page = await manager.list_recent_threads({"local": "retry-cursor"})
+
+        assert page.threads == []
+        assert page.next_cursors == {"local": "retry-cursor"}
+        assert session.stopped is True
         await manager.stop()
 
     asyncio.run(scenario())
@@ -1114,10 +1250,33 @@ def test_codex_controller_http_and_websocket_contract(tmp_path: Path) -> None:
             assert any(message["type"] == "workspace" for message in list_messages)
             assert factory.workspace_session().list_threads_calls[-1] == {
                 "archived": False,
-                "limit": 100,
+                "limit": 20,
                 "sort_key": "updated_at",
                 "sort_direction": "desc",
             }
+
+            ws.send_json(
+                {
+                    "id": "recent-1",
+                    "type": "list_recent_threads",
+                    "payload": {"cursors": {"local": "recent-cursor"}},
+                }
+            )
+            recent_messages = receive_until(
+                lambda message: (
+                    message.get("type") == "ack"
+                    and message.get("id") == "recent-1"
+                )
+            )
+            recent_ack = recent_messages[-1]
+            assert {thread["thread_id"] for thread in recent_ack["payload"]["threads"]} == {
+                "thread-a",
+                "thread-b",
+            }
+            assert recent_ack["payload"]["next_cursors"] == {}
+            assert factory.workspace_session().list_threads_calls[-1]["cursor"] == (
+                "recent-cursor"
+            )
 
             ws.send_json(
                 {

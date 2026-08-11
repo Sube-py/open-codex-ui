@@ -467,12 +467,18 @@ class CodexProjectGroup(BaseModel):
 class CodexWorkspaceResponse(BaseModel):
     projects: list[CodexProjectGroup] = Field(default_factory=list)
     recent_threads: list[CodexNativeSessionSummary] = Field(default_factory=list)
+    recent_threads_next_cursors: dict[str, str] = Field(default_factory=dict)
     paired_editors: list[CodexPairingExtensionSummary] = Field(default_factory=list)
     remote_connections: list[CodexRemoteConnection] = Field(default_factory=list)
     active_remote_connection_id: str = ""
     remote_connection_statuses: dict[str, CodexRemoteConnectionStatus] = Field(
         default_factory=dict
     )
+
+
+class CodexRecentThreadsPage(BaseModel):
+    threads: list[CodexNativeSessionSummary] = Field(default_factory=list)
+    next_cursors: dict[str, str] = Field(default_factory=dict)
 
 
 CodexFilesystemEntryKind = Literal["directory", "file", "other"]

@@ -70,6 +70,7 @@ function startMobileThread(projectPath: string, hostId?: string) {
       :opening-thread-id="codex.openingThreadId"
       :archiving-thread-id="codex.archivingThreadId"
       :forking-thread-id="codex.forkingThreadId"
+      :loading-more-recents="codex.isLoadingMoreRecentThreads"
       :busy="codex.isBooting || codex.isRenaming || codex.isArchiving"
       @select-thread="codex.selectThread"
       @start-thread="codex.startThread"
@@ -79,6 +80,7 @@ function startMobileThread(projectPath: string, hostId?: string) {
       @copy-error="showCodexError"
       @project-changed="codex.refreshWorkspaceAndSelect"
       @remote-connection-changed="handleRemoteConnectionChanged"
+      @show-more-recents="codex.loadMoreRecentThreads"
     />
 
     <main class="flex min-h-0 flex-col overflow-hidden">
@@ -192,6 +194,7 @@ function startMobileThread(projectPath: string, hostId?: string) {
             :opening-thread-id="codex.openingThreadId"
             :archiving-thread-id="codex.archivingThreadId"
             :forking-thread-id="codex.forkingThreadId"
+            :loading-more-recents="codex.isLoadingMoreRecentThreads"
             :busy="codex.isBooting || codex.isRenaming || codex.isArchiving"
             @select-thread="selectMobileThread"
             @start-thread="startMobileThread"
@@ -201,6 +204,7 @@ function startMobileThread(projectPath: string, hostId?: string) {
             @copy-error="showCodexError"
             @project-changed="codex.refreshWorkspaceAndSelect"
             @remote-connection-changed="handleRemoteConnectionChanged"
+            @show-more-recents="codex.loadMoreRecentThreads"
           />
         </div>
       </Transition>

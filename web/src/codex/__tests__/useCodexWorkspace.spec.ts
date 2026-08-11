@@ -47,6 +47,7 @@ class FakeCodexSocket implements CodexRealtimeClient {
     source: 'appServer',
   }
   includeForkedThread = false
+  includeRecentThreads = false
   includeRemoteThread = false
   goalObjective = 'Existing goal'
   getThreadGoalResponse: unknown = { goal: null }
@@ -131,7 +132,67 @@ class FakeCodexSocket implements CodexRealtimeClient {
               ]
             : []),
         ],
+        recent_threads: this.includeRecentThreads
+          ? [
+              {
+                thread_id: 'thread-recent-1',
+                title: 'Recent 1',
+                preview: 'recent 1',
+                updated_at: 15,
+                started_at: 14,
+                status: 'idle',
+                cwd: '/tmp/other',
+                project: 'other',
+                project_path: '/tmp/other',
+                source: 'appServer',
+              },
+            ]
+          : [],
+        recent_threads_next_cursors: this.includeRecentThreads ? { local: 'cursor-2' } : {},
         paired_editors: [],
+      } as TPayload
+    }
+    if (type === 'list_recent_threads') {
+      return {
+        threads: [
+          {
+            thread_id: 'thread-recent-1',
+            title: 'Recent 1 duplicate',
+            preview: 'recent 1 duplicate',
+            updated_at: 15,
+            started_at: 14,
+            status: 'idle',
+            cwd: '/tmp/other',
+            project: 'other',
+            project_path: '/tmp/other',
+            source: 'appServer',
+          },
+          {
+            thread_id: 'thread-a',
+            title: 'Project duplicate',
+            preview: 'project duplicate',
+            updated_at: 20,
+            started_at: 10,
+            status: 'idle',
+            cwd: '/tmp/alpha',
+            project: 'alpha',
+            project_path: '/tmp/alpha',
+            source: 'appServer',
+          },
+          {
+            thread_id: 'thread-recent-2',
+            title: 'Recent 2',
+            preview: 'recent 2',
+            updated_at: 5,
+            started_at: 4,
+            status: 'idle',
+            cwd: '/tmp/other',
+            project: 'other',
+            project_path: '/tmp/other',
+            source: 'appServer',
+          },
+        ],
+        next_cursors: {},
       } as TPayload
     }
     if (type === 'subscribe_thread_delta') {
@@ -375,6 +436,26 @@ describe('useCodexWorkspace', () => {
     expect(workspace.workspace.value.remote_connection_statuses?.['remote-1']?.status).toBe(
       'disconnected',
     )
+  })
+
+  it('loads and de-duplicates the next Recents page', async () => {
+    const socket = new FakeCodexSocket()
+    socket.includeRecentThreads = true
+    const { workspace } = mountHarness(socket)
+    await flushPromises()
+
+    await workspace.loadMoreRecentThreads()
+
+    expect(socket.commands).toContainEqual({
+      type: 'list_recent_threads',
+      payload: { cursors: { local: 'cursor-2' } },
+    })
+    expect(workspace.workspace.value.recent_threads?.map((thread) => thread.thread_id)).toEqual([
+      'thread-recent-1',
+      'thread-recent-2',
+    ])
+    expect(workspace.workspace.value.recent_threads_next_cursors).toEqual({})
+    expect(workspace.isLoadingMoreRecentThreads.value).toBe(false)
   })
 
   it('subscribes to one visible thread while leaving server sessions alive', async () => {

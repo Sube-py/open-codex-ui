@@ -13,8 +13,7 @@ import CodexProjectIdentity from './CodexProjectIdentity.vue'
 import CodexSettingsDialog from './CodexSettingsDialog.vue'
 
 const EXPANDED_PROJECTS_STORAGE_KEY = 'yier.codex.sidebar.expanded-projects'
-const PROJECT_THREAD_PAGE_SIZE = 10
-const CHATS_THREAD_PAGE_SIZE = 50
+const PROJECT_THREAD_PAGE_SIZE = 5
 
 const projectPath = defineModel<string>('projectPath', { required: true })
 
@@ -24,6 +23,7 @@ const props = defineProps<{
   openingThreadId?: string
   archivingThreadId?: string
   forkingThreadId?: string
+  loadingMoreRecents?: boolean
   busy?: boolean
 }>()
 
@@ -36,11 +36,12 @@ const emit = defineEmits<{
   copyError: [message: string]
   projectChanged: []
   remoteConnectionChanged: []
+  showMoreRecents: []
 }>()
 
 type ProjectWithKey = CodexProjectGroup & {
   key: string
-  isChats?: boolean
+  isRecents?: boolean
 }
 
 type MenuRef = {
@@ -83,16 +84,16 @@ const sections = computed<ProjectWithKey[]>(() => {
   const recent = recentThreads.value.length
     ? [
         {
-          id: 'chats',
-          project: 'Chats',
+          id: 'recents',
+          project: 'Recents',
           project_path: '',
           host_id: 'local',
           kind: 'local' as const,
           root_paths: [],
           session_count: recentThreads.value.length,
           sessions: recentThreads.value,
-          key: 'chats',
-          isChats: true,
+          key: 'recents',
+          isRecents: true,
         },
       ]
     : []
@@ -261,7 +262,7 @@ function isProjectExpanded(project: ProjectWithKey) {
     return userExpandedProjects.value[project.key] ?? false
   }
   return (
-    project.isChats === true ||
+    project.isRecents === true ||
     project.key === activeProjectKey.value ||
     project.key === latestProjectKey.value
   )
@@ -275,7 +276,7 @@ function toggleProject(project: ProjectWithKey) {
 }
 
 function threadPageSize(project: ProjectWithKey) {
-  return project.isChats ? CHATS_THREAD_PAGE_SIZE : PROJECT_THREAD_PAGE_SIZE
+  return project.isRecents ? project.sessions.length : PROJECT_THREAD_PAGE_SIZE
 }
 
 function visibleThreads(project: ProjectWithKey) {
@@ -286,8 +287,15 @@ function visibleThreads(project: ProjectWithKey) {
 }
 
 function hiddenThreadCount(project: ProjectWithKey) {
+  if (project.isRecents) {
+    return 0
+  }
   return project.sessions.length - visibleThreads(project).length
 }
+
+const hasMoreRecents = computed(
+  () => Object.keys(props.workspace.recent_threads_next_cursors ?? {}).length > 0,
+)
 
 function showMoreThreads(project: ProjectWithKey) {
   const currentLimit = visibleThreadLimits.value[project.key] ?? threadPageSize(project)
@@ -412,7 +420,7 @@ async function copyThreadId(threadId: string) {
               @click="toggleProject(project)"
             >
               <CodexProjectIdentity
-                v-if="!project.isChats"
+                v-if="!project.isRecents"
                 :expanded="isProjectExpanded(project)"
                 :host-id="projectHostId(project)"
                 :workspace="workspace"
@@ -426,13 +434,13 @@ async function copyThreadId(threadId: string) {
                 class="flex min-w-0 items-center gap-2 text-sm font-semibold text-[color:var(--app-text)]"
               >
                 <i
-                  class="pi pi-comments w-4 shrink-0 text-center text-[color:var(--app-text-soft)]"
+                  class="pi pi-clock w-4 shrink-0 text-center text-[color:var(--app-text-soft)]"
                 ></i>
-                <span class="truncate">Chats</span>
+                <span class="truncate">Recents</span>
               </span>
             </button>
             <Button
-              v-if="!project.isChats"
+              v-if="!project.isRecents"
               icon="pi pi-pen-to-square"
               severity="secondary"
               text
@@ -546,13 +554,26 @@ async function copyThreadId(threadId: string) {
             <Button
               v-if="hiddenThreadCount(project) > 0"
               icon="pi pi-angle-down"
-              :label="`Show ${hiddenThreadCount(project)} more`"
+              label="Show more"
               severity="secondary"
               text
               size="small"
               class="!justify-start !py-1 !pl-[2.15rem] !text-xs"
               data-codex-show-more-threads
               @click="showMoreThreads(project)"
+            />
+            <Button
+              v-if="project.isRecents && hasMoreRecents"
+              icon="pi pi-angle-down"
+              label="Show more"
+              severity="secondary"
+              text
+              size="small"
+              class="!justify-start !py-1 !pl-[2.15rem] !text-xs"
+              data-codex-show-more-recents
+              :loading="loadingMoreRecents"
+              :disabled="loadingMoreRecents"
+              @click="emit('showMoreRecents')"
             />
           </div>
         </section>

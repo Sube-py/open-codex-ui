@@ -43,10 +43,16 @@ export interface CodexProjectGroup {
 export interface CodexWorkspaceResponse {
   projects: CodexProjectGroup[]
   recent_threads?: CodexNativeSessionSummary[]
+  recent_threads_next_cursors?: Record<string, string>
   paired_editors?: JsonRecord[]
   remote_connections?: CodexRemoteConnection[]
   active_remote_connection_id?: string
   remote_connection_statuses?: Record<string, CodexRemoteConnectionStatus>
+}
+
+export interface CodexRecentThreadsPage {
+  threads: CodexNativeSessionSummary[]
+  next_cursors: Record<string, string>
 }
 
 export interface CodexProjectPayload {
@@ -309,6 +315,7 @@ export interface CodexSkillSummary {
 
 export type CodexClientCommand =
   | 'list_threads'
+  | 'list_recent_threads'
   | 'subscribe_thread'
   | 'subscribe_thread_delta'
   | 'unsubscribe_thread'
