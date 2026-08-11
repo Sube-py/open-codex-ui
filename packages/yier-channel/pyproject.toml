@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "yier-channel"
 version = "0.1.0"
 description = "Channel runtime and platform adapters for yier"
-readme = "../../README.md"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "cryptography>=45.0.0",
