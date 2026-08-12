@@ -4,13 +4,39 @@
 
 # Open Codex UI
 
-A remote-friendly web workspace for continuing Codex sessions from desktop and
-mobile browsers.
+Open Codex UI is a browser workspace for continuing Codex work wherever you
+are. It gives your existing Codex sessions a practical home across desktop and
+mobile devices, without asking you to leave the Codex ecosystem behind.
+
+Use it beside ChatGPT Desktop when that is where a task begins, then keep the
+same work moving from a browser, phone, tablet, or another computer. It is an
+independent project and is not affiliated with OpenAI or ChatGPT.
 
 > [!IMPORTANT]
 > **Non-commercial use only.** This project is provided solely for learning,
 > research, personal use, and other non-commercial purposes. Commercial use
 > requires prior written permission from the copyright holder.
+
+## What It Gives You
+
+- **A familiar Codex workspace**: browse projects and recent threads, resume
+  prior work, create new sessions, and keep the conversation history available
+  from one responsive interface.
+- **Continuity with your Codex setup**: work with the sessions, projects, and
+  local Codex installation you already use rather than adopting another agent
+  runtime or conversation format.
+- **SSH remote workspaces**: connect a remote machine, select its project
+  directories, and work with Codex where the code and tools actually live.
+  Existing `~/.ssh/config` hosts can be discovered from the UI.
+- **Voice input**: dictate prompts in the composer with local streaming speech
+  recognition. The bundled workflow supports a bilingual Chinese-English
+  sherpa-onnx model and keeps model configuration in Settings.
+- **A mobile-friendly experience**: session navigation, project switching, and
+  chat remain usable on a phone or tablet, so a running task is not tied to a
+  desk.
+- **Private or shareable access**: use it on your local network, expose it
+  through a Cloudflare Tunnel, and protect a shared instance with application
+  authentication.
 
 ## Preview
 
@@ -24,195 +50,93 @@ mobile browsers.
   <img src="https://raw.githubusercontent.com/Sube-py/open-codex-ui/main/web/public/screenshots/open-codex-ui-mobile-projects.png" alt="Open Codex UI mobile project drawer" width="300">
 </p>
 
-## Quick Start
+## Start Here
 
-Run the packaged application through Node.js:
+Launch the packaged app with Node.js:
 
 ```bash
 npx open-codex-ui
 ```
 
-The npm launcher reuses an existing `uvx`, or installs `uv` from Astral's
-official installer into its own cache. You can also run the Python package
-directly with [`uv`](https://docs.astral.sh/uv/):
+Or use [`uv`](https://docs.astral.sh/uv/) directly:
 
 ```bash
 uvx open-codex-ui
 ```
 
-Open `http://127.0.0.1:13140` on the local machine. The wheel already contains
-the compiled frontend. The server listens on `0.0.0.0` by default so it can be
-reached from other devices on the network. To restrict it to the local machine:
+Open `http://127.0.0.1:13140`, then add a project or resume a recent Codex
+thread. The server listens on `0.0.0.0` by default, making it reachable from
+other devices on your local network. For a local-only instance:
 
 ```bash
 uvx open-codex-ui serve --host 127.0.0.1 --port 13140
 ```
 
-Codex WebSocket subscriptions use turn, item, and streaming-text deltas,
-latest-state coalescing, and negotiated gzip binary frames for larger messages.
-Clients that do not request gzip continue to receive regular JSON frames.
+## Work From Anywhere
 
-## Background Service
+### Remote Machines Over SSH
 
-Install the command persistently and register login startup:
+Add an SSH connection from the sidebar, verify that Codex is available on the
+remote host, and create remote projects from its filesystem. Connections can
+use a hostname, user, port, identity file, or an alias already defined in
+`~/.ssh/config`.
 
-```bash
-npx open-codex-ui daemon install
-# or
-uvx open-codex-ui daemon install
-```
+### Mobile and Voice
 
-This installs `open-codex-ui` into uv's user bin directory and uses the native
-service manager for the current platform. The background service listens on
-`0.0.0.0` by default so it can be reached from other devices on the network.
-Use `--host 127.0.0.1` to restrict it to the local machine.
-
-| Platform | Service                                 |
-| -------- | --------------------------------------- |
-| macOS    | LaunchAgent in `~/Library/LaunchAgents` |
-| Linux    | `systemd --user` service                |
-| Windows  | Current-user Task Scheduler task        |
-
-After opening a new shell, manage the service directly:
-
-```bash
-open-codex-ui daemon status
-open-codex-ui daemon stop
-open-codex-ui daemon start
-open-codex-ui daemon uninstall
-```
-
-The service starts when the user logs in. Runtime state, retained environment,
-and logs live under `~/.yier/web/`. Run `daemon install` again to update its
-host, port, or captured environment; use `update` for application versions.
-
-## Cloudflare Tunnel
-
-Start Open Codex UI first, then expose the default local address with an
-ephemeral Quick Tunnel:
-
-```bash
-open-codex-ui tunnel start
-open-codex-ui tunnel status
-open-codex-ui tunnel stop
-```
-
-For a tunnel already configured in the Cloudflare dashboard, provide an API
-token that can read the account's tunnel configuration and connector token:
-
-```bash
-export CF_TOKEN='your-cloudflare-api-token'
-open-codex-ui tunnel start --mode managed-remote --name my-tunnel
-```
-
-The named-tunnel flow discovers its public hostname and local origin from
-Cloudflare. Set `CF_ACCOUNT_ID` or pass `--account-id` when account discovery
-is unavailable. You can bypass the API with an existing connector token file:
-
-```bash
-open-codex-ui tunnel start --mode managed-remote \
-  --token-file ~/.cloudflared/my-tunnel.token \
-  --hostname codex.example.com
-```
-
-Locally managed cloudflared configurations are also supported:
-
-```bash
-open-codex-ui tunnel start --mode managed-local
-open-codex-ui tunnel start --mode managed-local --config ~/.cloudflared/config.yml
-```
-
-Tunnel state and logs are stored under `~/.yier/web/`. API and connector tokens
-are never persisted there or included in the cloudflared command line. Tunnel
-processes are independent from the login service, and `tunnel stop` only stops
-the cloudflared process started by Open Codex UI.
-
-> [!WARNING]
-> A tunnel exposes Open Codex UI to the public Internet. Configure application
-> authentication or Cloudflare Access before sharing the public URL.
-
-## Updating
-
-Update a persistent installation to the latest stable release:
-
-```bash
-open-codex-ui update
-# or
-npx open-codex-ui update
-```
-
-If the login service is running, it is restarted after the update. Plain
-`uvx` and `npx` runs resolve their release when launched, so the command makes
-no persistent changes when no uv tool installation exists.
-
-## Authentication
-
-Authentication is disabled unless a password variable is configured:
-
-```bash
-export YIER_AUTH_PASSWORD='change-this-password'
-uvx open-codex-ui daemon install --host 0.0.0.0
-```
-
-For a hashed password:
-
-```bash
-uv run --with open-codex-ui python -c "from yier_web.auth import hash_password; print(hash_password('change-this-password'))"
-export YIER_AUTH_PASSWORD_HASH='paste-generated-hash-here'
-```
-
-| Variable                      | Purpose                                   |
-| ----------------------------- | ----------------------------------------- |
-| `YIER_AUTH_PASSWORD`          | Plain login password                      |
-| `YIER_AUTH_PASSWORD_HASH`     | Hashed login password                     |
-| `YIER_AUTH_SECRET`            | Additional session-cookie signing secret  |
-| `YIER_AUTH_SESSION_TTL_HOURS` | Session lifetime; defaults to `168` hours |
-| `YIER_CODEX_EMBED_TOKEN`      | Token for unauthenticated iframe access   |
-
-`daemon install` retains `HOME`, `PATH`, `CODEX_HOME`, and current `YIER_*`
-variables in a user-only environment file so they remain available after login.
-
-## Voice Input
-
-The Codex composer can stream microphone audio to a local sherpa-onnx
-transducer model. The default model directory is
-`~/.yier/models/sherpa-onnx`. A bilingual Chinese-English streaming Zipformer
-can be installed with:
+The layout is built for narrow screens as well as desktop. On supported
+browsers, hold the microphone control in the composer to dictate a prompt.
+Install the local speech model once:
 
 ```bash
 open-codex-ui speech install
 ```
 
-The installer supports interrupted-download resumption, verifies the archive,
-extracts it safely, and atomically activates the model. Standard `HTTPS_PROXY`
-and `ALL_PROXY` environment variables are honored:
+Model location, execution provider, and decoder threads are configurable from
+**Settings -> Voice**. Remote mobile browsers need HTTPS for microphone access;
+`localhost` is treated as secure by modern browsers.
+
+### Share Securely
+
+For a temporary public URL, start a Cloudflare Quick Tunnel:
 
 ```bash
-HTTPS_PROXY=http://127.0.0.1:7890 open-codex-ui speech install
-open-codex-ui speech status
-open-codex-ui speech install --force
-open-codex-ui speech remove
+open-codex-ui tunnel start
 ```
 
-The model is stored outside the Python environment, so it remains available
-after `uv tool` upgrades or reinstalls. The directory must contain
-`tokens.txt`, `encoder*.onnx`, `decoder*.onnx`, and `joiner*.onnx`.
+For an always-on personal workspace, install the login service:
 
-Override the runtime configuration when needed:
+```bash
+open-codex-ui daemon install
+```
 
-| Variable                        | Purpose                                      |
-| ------------------------------- | -------------------------------------------- |
-| `YIER_SHERPA_ONNX_MODEL_DIR`    | Streaming transducer model directory         |
-| `YIER_SHERPA_ONNX_PROVIDER`     | sherpa-onnx execution provider; default `cpu` |
-| `YIER_SHERPA_ONNX_NUM_THREADS`  | Decoder threads; default `2`                 |
+Turn on password protection from **Settings -> Authentication** before exposing
+the app beyond a trusted network. The UI stores the password as a hash and
+persists its settings under `~/.yier/web/settings.json`.
 
-Model directory, execution provider, and decoder thread count can also be
-managed from **Settings → Voice**. They are persisted in
-`~/.yier/web/settings.json`; the environment variables above take precedence
-over the corresponding saved values.
+> [!WARNING]
+> A public tunnel exposes the workspace to the Internet. Enable application
+> authentication or Cloudflare Access before sharing its URL.
 
-Remote mobile browsers require HTTPS for microphone permission. Localhost is
-also treated as a secure context by modern browsers.
+## Configuration Notes
+
+Most personal configuration is available from Settings and is stored in
+`~/.yier/web/settings.json`. Environment variables remain useful for
+deployment, automation, and settings that should take precedence over the UI.
+
+| Variable | Use |
+| --- | --- |
+| `YIER_AUTH_PASSWORD` | Login password for a managed deployment |
+| `YIER_AUTH_PASSWORD_HASH` | Hashed login password instead of plaintext |
+| `YIER_AUTH_SECRET` | Session-cookie signing secret |
+| `YIER_AUTH_SESSION_TTL_HOURS` | Login duration, defaulting to 168 hours |
+| `YIER_CODEX_EMBED_TOKEN` | Token for unauthenticated iframe embedding |
+| `YIER_SHERPA_ONNX_MODEL_DIR` | Local speech model directory |
+| `YIER_SHERPA_ONNX_PROVIDER` | sherpa-onnx execution provider |
+| `YIER_SHERPA_ONNX_NUM_THREADS` | Speech decoder thread count |
+
+`daemon install` preserves the relevant `YIER_*` variables, `HOME`, `PATH`,
+and `CODEX_HOME` in its user-only environment file. See [IFRAME.md](./IFRAME.md)
+for iframe authentication, setup, and the `postMessage` API.
 
 ## Development
 
@@ -230,34 +154,17 @@ pnpm --dir web dev
 uv run python main.py --debug --reload --host 127.0.0.1 --port 13140
 ```
 
-The application remains at `http://127.0.0.1:13140`; the backend proxies
-frontend traffic to the Vite server on port `5173`.
-
-| Command                                | Purpose                                                     |
-| -------------------------------------- | ----------------------------------------------------------- |
-| `pnpm --dir web dev`                   | Start Vite                                                  |
-| `uv run python main.py --debug --reload` | Start the development backend                             |
-| `pnpm --dir web build`                 | Type-check and build frontend assets into `yier_web/static` |
-| `uv run open-codex-ui`                 | Run the source checkout in production mode                  |
-| `uv run pytest`                        | Run backend tests                                           |
-| `uv run python -m compileall yier_web` | Check Python compilation                                    |
-| `pnpm --dir web test:unit`             | Run frontend unit tests                                     |
-| `pnpm --dir web type-check`            | Run frontend type checking                                  |
-
-To test the production build from source:
+Useful checks:
 
 ```bash
+uv run --all-packages pytest
+pnpm --dir web test:unit
+pnpm --dir web type-check
 pnpm --dir web build
-uv run open-codex-ui
 ```
 
 Codex integration is provided by the published
 [`open-codex-bridge`](https://pypi.org/project/open-codex-bridge/) package.
-
-## Iframe Embedding
-
-See [IFRAME.md](./IFRAME.md) for iframe authentication, setup, and the
-`postMessage` API.
 
 ## License
 
