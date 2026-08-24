@@ -1560,15 +1560,8 @@ print(json.dumps({
                 client_title=f"Open Codex UI ({remote_connection.display_name})",
             )
 
-        command = settings.launcher_command or "codex app-server --listen stdio://"
-        try:
-            args = tuple(shlex.split(command))
-        except ValueError:
-            args = ("codex", "app-server", "--listen", "stdio://")
-        if not args:
-            args = ("codex", "app-server", "--listen", "stdio://")
         return AppServerConfig(
-            launch_args_override=args,
+            launch_args_override=None,
             cwd=str(self.config_service.project_root),
             env={"CODEX_HOME": str(codex_home)},
             client_name="open_codex_ui",

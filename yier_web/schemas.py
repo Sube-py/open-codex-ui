@@ -89,7 +89,10 @@ class SessionDefaultsSettings(BaseModel):
 
 
 class StoredCodexSettings(BaseModel):
-    launcher_command: str = "codex app-server --listen stdio://"
+    # Retained for backward compatibility with existing settings files. The
+    # app-server is always launched from the SDK's bundled runtime; this field
+    # no longer affects startup.
+    launcher_command: str = ""
     model: str = "gpt-5.4"
     sandbox: CodexSandboxMode = "workspace-write"
     approval_policy: CodexApprovalPolicy = "on-request"

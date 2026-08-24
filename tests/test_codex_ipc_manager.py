@@ -1948,6 +1948,25 @@ def test_codex_settings_import_and_extend_desktop_projectless_threads(
     }
 
 
+def test_codex_local_app_server_uses_bundled_runtime(tmp_path: Path) -> None:
+    """The app-server is always launched from the SDK's bundled runtime (whose
+    bin/ ships codex together with codex-code-mode-host) rather than a bare
+    `codex` resolved from PATH."""
+    config_service = AppConfigService(
+        project_root=tmp_path, home_dir=tmp_path / "home"
+    )
+    manager = CodexIpcManager(
+        config_service=config_service,
+        event_broker=EventStreamBroker(),
+        session_factory=FakeSessionFactory(),
+    )
+    config = manager._config(host_id="local")
+
+    assert config.app_server_config is not None
+    assert config.app_server_config.launch_args_override is None
+    assert config.app_server_config.codex_bin is None
+
+
 def test_codex_remote_connection_configures_ssh_app_server(tmp_path: Path) -> None:
     factory = FakeSessionFactory()
     config_service, client = build_app(tmp_path, factory)

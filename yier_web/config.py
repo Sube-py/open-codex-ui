@@ -612,8 +612,6 @@ class AppConfigService:
         settings.session_defaults.channel_project_path = self.resolve_project_path(
             settings.session_defaults.channel_project_path
         )
-        if not settings.codex.launcher_command:
-            settings.codex.launcher_command = "codex app-server --listen stdio://"
         settings.codex.remote_connections = self._normalize_remote_connections(
             settings.codex.remote_connections
         )
