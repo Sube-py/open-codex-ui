@@ -1039,29 +1039,16 @@ def test_codex_manager_forwards_native_ipc_session_events(tmp_path: Path) -> Non
     asyncio.run(scenario())
 
 
-def test_codex_manager_builds_thread_defaults_from_codex_home(
+def test_codex_manager_thread_defaults_are_minimal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Thread-level defaults are left entirely to the app-server: model,
+    sandbox, approval policy and the working directory are all read by the
+    app-server from ~/.codex/config.toml or its launch directory."""
+
     async def scenario() -> None:
         codex_home = tmp_path / "codex-home"
         codex_home.mkdir()
-        (codex_home / "config.toml").write_text(
-            "\n".join(
-                [
-                    'model = "gpt-5.5"',
-                    'model_provider = "cheftin"',
-                    'model_reasoning_effort = "high"',
-                    'approval_policy = "never"',
-                    'approvals_reviewer = "guardian_subagent"',
-                    'sandbox_mode = "read-only"',
-                    'service_tier = "priority"',
-                    'personality = "pragmatic"',
-                    'developer_instructions = "Use concise status updates."',
-                    "",
-                ]
-            ),
-            encoding="utf-8",
-        )
         monkeypatch.setenv("CODEX_HOME", str(codex_home))
         config_service = AppConfigService(
             project_root=tmp_path / "project",
@@ -1078,26 +1065,54 @@ def test_codex_manager_builds_thread_defaults_from_codex_home(
         await manager.start_thread(project_path="/tmp/project-c")
 
         created_session = factory.by_thread_id("thread-created")
-        assert created_session.config.model == "gpt-5.5"
-        assert created_session.config.reasoning_effort == "high"
+        assert created_session.config.model is None
+        assert created_session.config.reasoning_effort is None
         assert created_session.config.app_server_config.env == {
             "CODEX_HOME": str(codex_home)
         }
-        assert created_session.config.default_thread_params == {
-            "cwd": str(config_service.project_root),
-            "model": "gpt-5.5",
-            "model_provider": "cheftin",
-            "approval_policy": "never",
-            "approvals_reviewer": "guardian_subagent",
-            "sandbox": "read-only",
-            "service_tier": "priority",
-            "personality": "pragmatic",
-            "developer_instructions": "Use concise status updates.",
-            "config": {"model_reasoning_effort": "high"},
-        }
+        assert created_session.config.default_thread_params == {}
         assert created_session.start_new_thread_calls[-1] == {
             "cwd": config_service.resolve_project_path("/tmp/project-c")
         }
+
+        await manager.stop()
+
+    asyncio.run(scenario())
+
+
+def test_codex_projectless_thread_uses_generated_documents_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A thread started without a project resolves to a generated directory
+    under Documents/Codex/<date>/<name> (with work/ and outputs/), matching the
+    desktop app's projectless new-chat behavior."""
+
+    async def scenario() -> None:
+        codex_home = tmp_path / "codex-home"
+        codex_home.mkdir()
+        monkeypatch.setenv("CODEX_HOME", str(codex_home))
+        config_service = AppConfigService(
+            project_root=tmp_path / "project",
+            home_dir=tmp_path / "home",
+        )
+        factory = FakeSessionFactory()
+        manager = CodexIpcManager(
+            config_service=config_service,
+            event_broker=EventStreamBroker(),
+            session_factory=factory,
+        )
+
+        await manager.start()
+        await manager.start_thread(project_path=None)
+
+        created_session = factory.by_thread_id("thread-created")
+        start_params = created_session.start_new_thread_calls[-1]
+        cwd = start_params["cwd"]
+        path = Path(cwd)
+        assert path.is_relative_to(tmp_path / "home" / "Documents" / "Codex")
+        assert path.parent.name == "new-chat" or path.name == "new-chat"
+        assert (path / "work").is_dir()
+        assert (path / "outputs").is_dir()
 
         await manager.stop()
 

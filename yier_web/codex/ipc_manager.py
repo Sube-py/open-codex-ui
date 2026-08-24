@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass
+from datetime import datetime
 import json
 import logging
 import os
 from pathlib import Path
+import re
 import shlex
-import tomllib
+import uuid
 from typing import Callable
 
 from codex_bridge import (
@@ -62,7 +64,6 @@ from yier_web.schemas import (
 
 logger = logging.getLogger(__name__)
 CODEX_POSIX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
-CODEX_CONFIG_FILE = "config.toml"
 CODEX_PROJECT_THREAD_PAGE_SIZE = 100
 CODEX_RECENT_THREAD_PAGE_SIZE = 20
 
@@ -134,24 +135,62 @@ def _codex_home(home_dir: Path | None = None) -> Path:
     return (home_dir or Path.home()).expanduser() / ".codex"
 
 
-def _load_codex_home_config(codex_home: Path) -> JsonDict:
-    config_path = codex_home / CODEX_CONFIG_FILE
-    try:
-        with config_path.open("rb") as handle:
-            payload = tomllib.load(handle)
-    except FileNotFoundError:
-        return {}
-    except tomllib.TOMLDecodeError as exc:
-        logger.warning("Unable to parse %s: %s", config_path, exc)
-        return {}
-    return payload if isinstance(payload, dict) else {}
+# Projectless threads live under a generated directory in the user's
+# Documents/Codex folder, mirroring the desktop app's "new chat" behavior.
+CODEX_PROJECTLESS_ROOT = ("Documents", "Codex")
+PROJECTLESS_DIR_NAME_BYTES_LIMIT = 80
+PROJECTLESS_DIR_NAME_WORD_LIMIT = 6
 
 
-def _config_string(config: JsonDict, key: str) -> str | None:
-    value = config.get(key)
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
+def _projectless_thread_name(
+    directory_name: str | None = None,
+    prompt: str | None = None,
+) -> str:
+    source = directory_name if directory_name is not None else prompt
+    words = re.findall(r"[a-z0-9]+", (source or "").lower())
+    if not words:
+        return "new-chat"
+    selected = words if directory_name is not None else words[:PROJECTLESS_DIR_NAME_WORD_LIMIT]
+    return "-".join(selected)[:PROJECTLESS_DIR_NAME_BYTES_LIMIT]
+
+
+def _projectless_date_directory(now: datetime | None = None) -> str:
+    current = now or datetime.now()
+    return f"{current.year:04d}-{current.month:02d}-{current.day:02d}"
+
+
+def _create_projectless_thread_dir(
+    home_dir: Path,
+    *,
+    directory_name: str | None = None,
+    prompt: str | None = None,
+) -> str:
+    root = home_dir.joinpath(*CODEX_PROJECTLESS_ROOT)
+    root.mkdir(parents=True, exist_ok=True)
+    date_dir = root / _projectless_date_directory()
+    date_dir.mkdir(parents=True, exist_ok=True)
+
+    base_name = _projectless_thread_name(directory_name, prompt)
+    for index in range(100):
+        name = base_name if index == 0 else f"{base_name}-{index + 1}"
+        candidate = date_dir / name
+        try:
+            candidate.mkdir()
+        except FileExistsError:
+            continue
+        # Mirror the desktop's split-directories layout; if that fails the
+        # thread still uses the plain directory, matching the desktop fallback.
+        try:
+            (candidate / "work").mkdir()
+            (candidate / "outputs").mkdir()
+        except OSError:
+            pass
+        return str(candidate)
+
+    fallback = f"{base_name}-{uuid.uuid4().hex[:8]}"
+    candidate = date_dir / fallback
+    candidate.mkdir(parents=True, exist_ok=True)
+    return str(candidate)
 
 
 def _thread_summary(
@@ -1518,26 +1557,14 @@ print(json.dumps({
         settings = self.config_service.load_web_settings().codex
         resolved_host_id = self._resolve_host_id(host_id, settings=settings)
         codex_home = _codex_home(self.config_service.home_dir)
-        codex_config = _load_codex_home_config(codex_home)
-        is_remote = resolved_host_id != "local"
         return CodexIpcConfig(
             thread_id=thread_id,
             host_id=resolved_host_id,
             client_type="yier",
-            model=None if is_remote else self._thread_model(settings, codex_config),
-            reasoning_effort=(
-                None if is_remote else self._reasoning_effort(settings, codex_config)
-            ),
             app_server_config=self._app_server_config(
                 settings,
                 host_id=resolved_host_id,
                 codex_home=codex_home,
-            ),
-            default_thread_params=self._default_thread_params(
-                settings,
-                codex_config,
-                cwd=self._default_thread_cwd(settings, resolved_host_id),
-                include_model=not is_remote,
             ),
         )
 
@@ -1741,115 +1768,18 @@ print(json.dumps({
         remote_connection = self._connection_for_host(host_id, settings=settings)
         if remote_connection is not None:
             resolved_project_path = project_path or "~"
+        elif project_path:
+            resolved_project_path = self.config_service.resolve_project_path(project_path)
         else:
-            resolved_project_path = self.config_service.resolve_project_path(
-                project_path
+            # No project selected: create a projectless thread under
+            # ~/Documents/Codex/<date>/<name>, like the desktop "new chat".
+            # The directory name is derived from the new-thread hint; when
+            # none is supplied (a fresh chat created before its first prompt)
+            # this falls back to "new-chat".
+            resolved_project_path = _create_projectless_thread_dir(
+                self.config_service.home_dir,
             )
         return {"cwd": resolved_project_path}
-
-    def _default_thread_cwd(
-        self,
-        settings: StoredCodexSettings,
-        host_id: str,
-    ) -> str:
-        remote_connection = self._connection_for_host(host_id, settings=settings)
-        if remote_connection is not None:
-            return "~"
-        return str(self.config_service.project_root)
-
-    def _default_thread_params(
-        self,
-        settings: StoredCodexSettings,
-        codex_config: JsonDict,
-        *,
-        cwd: str,
-        include_model: bool = True,
-    ) -> JsonDict:
-        params: JsonDict = {
-            "cwd": cwd,
-            "approval_policy": self._approval_policy(settings, codex_config),
-            "approvals_reviewer": self._approvals_reviewer(settings, codex_config),
-            "sandbox": self._sandbox_mode(settings, codex_config),
-            "service_tier": self._service_tier(settings, codex_config),
-            "personality": self._personality(settings, codex_config),
-            "base_instructions": _config_string(codex_config, "base_instructions"),
-            "developer_instructions": _config_string(
-                codex_config,
-                "developer_instructions",
-            ),
-        }
-        if include_model:
-            params["model"] = self._thread_model(settings, codex_config)
-            params["model_provider"] = _config_string(codex_config, "model_provider")
-            reasoning_effort = self._reasoning_effort(settings, codex_config)
-            if reasoning_effort is not None:
-                params["config"] = {"model_reasoning_effort": reasoning_effort}
-        ephemeral = codex_config.get("ephemeral")
-        if isinstance(ephemeral, bool):
-            params["ephemeral"] = ephemeral
-        return {key: value for key, value in params.items() if value is not None}
-
-    def _thread_model(
-        self,
-        settings: StoredCodexSettings,
-        codex_config: JsonDict,
-    ) -> str | None:
-        return _config_string(codex_config, "model") or settings.model or None
-
-    def _approval_policy(
-        self,
-        settings: StoredCodexSettings,
-        codex_config: JsonDict,
-    ) -> str | None:
-        return (
-            _config_string(codex_config, "approval_policy") or settings.approval_policy
-        )
-
-    def _approvals_reviewer(
-        self,
-        settings: StoredCodexSettings,
-        codex_config: JsonDict,
-    ) -> str | None:
-        return (
-            _config_string(codex_config, "approvals_reviewer")
-            or settings.approvals_reviewer
-        )
-
-    def _sandbox_mode(
-        self,
-        settings: StoredCodexSettings,
-        codex_config: JsonDict,
-    ) -> str | None:
-        return _config_string(codex_config, "sandbox_mode") or settings.sandbox
-
-    def _service_tier(
-        self,
-        settings: StoredCodexSettings,
-        codex_config: JsonDict,
-    ) -> str | None:
-        return (
-            _config_string(codex_config, "service_tier")
-            or settings.service_tier
-            or None
-        )
-
-    def _personality(
-        self,
-        settings: StoredCodexSettings,
-        codex_config: JsonDict,
-    ) -> str | None:
-        value = _config_string(codex_config, "personality") or settings.personality
-        return value if value != "none" else None
-
-    def _reasoning_effort(
-        self,
-        settings: StoredCodexSettings,
-        codex_config: JsonDict,
-    ) -> str | None:
-        value = _config_string(codex_config, "model_reasoning_effort")
-        if value is None:
-            value = settings.reasoning_effort.strip()
-        return value if value and value != "none" else None
 
     def _summaries_from_threads(
         self,
