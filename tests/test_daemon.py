@@ -456,6 +456,9 @@ def test_systemd_service_writes_and_enables_user_unit(tmp_path: Path) -> None:
 
     unit = service.unit_path.read_text(encoding="utf-8")
     assert f'ExecStart={_systemd_quote(str(config.executable))} "_service"' in unit
+    assert f"WorkingDirectory={config.working_directory}" in unit
+    assert f"StandardOutput=append:{config.log_path}" in unit
+    assert f"StandardError=append:{config.log_path}" in unit
     assert "Restart=on-failure" in unit
     assert "WantedBy=default.target" in unit
     assert runner.calls[-1] == [
