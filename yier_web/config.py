@@ -8,8 +8,6 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from yier_agents.src.config import YIERConfig
-
 from yier_web.schemas import (
     BackendHealth,
     BackendOption,
@@ -333,7 +331,11 @@ class AppConfigService:
         return settings
 
     def load_mcp_root_config(self) -> dict[str, Any]:
-        return YIERConfig.load_config(self.yier_root)
+        try:
+            payload = json.loads(self.mcp_config_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
     def load_mcp_servers(self) -> dict[str, dict[str, Any]]:
         raw = self.load_mcp_root_config().get("mcpServers", {})
