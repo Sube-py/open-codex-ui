@@ -155,6 +155,7 @@ def test_download_manager_reports_progress_and_passes_proxy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     started = Event()
+    progressed = Event()
     release = Event()
     captured_proxy: list[str] = []
 
@@ -162,6 +163,7 @@ def test_download_manager_reports_progress_and_passes_proxy(
         captured_proxy.append(manager.proxy)
         started.set()
         manager._report_progress(5, 10)
+        progressed.set()
         assert release.wait(timeout=1)
         manager._report_progress(10, 10)
         return 0
@@ -172,6 +174,7 @@ def test_download_manager_reports_progress_and_passes_proxy(
 
     assert initial.state == "downloading"
     assert started.wait(timeout=1)
+    assert progressed.wait(timeout=1)
     assert download_manager.status().downloaded_bytes == 5
     release.set()
     assert _wait_for_download_state(download_manager, "ready")

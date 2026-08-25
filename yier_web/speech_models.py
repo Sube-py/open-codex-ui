@@ -276,9 +276,10 @@ class SpeechModelDownloadManager:
             (models_dir or DEFAULT_MODELS_DIR).expanduser().resolve()
         )
         self.model_dir = self.models_dir / STANDARD_MODEL_NAME
+        self.model_link = self.models_dir / STANDARD_MODEL.link_name
         self._lock = Lock()
         self._thread: Thread | None = None
-        self._status = SpeechModelDownloadStatus(model_dir=str(self.model_dir))
+        self._status = SpeechModelDownloadStatus(model_dir=str(self.model_link))
 
     def status(self) -> "SpeechModelDownloadStatus":
         with self._lock:
@@ -293,13 +294,13 @@ class SpeechModelDownloadManager:
             if manager._is_valid_model(self.model_dir) and manager._is_active_model():
                 self._status = SpeechModelDownloadStatus(
                     state="ready",
-                    model_dir=str(self.model_dir),
+                    model_dir=str(self.model_link),
                 )
                 return self._status
             self._status = SpeechModelDownloadStatus(
                 state="downloading",
                 proxy=normalized_proxy,
-                model_dir=str(self.model_dir),
+                model_dir=str(self.model_link),
             )
             self._thread = Thread(
                 target=self._download,
@@ -323,7 +324,7 @@ class SpeechModelDownloadManager:
                 self._status = SpeechModelDownloadStatus(
                     state="error",
                     error=str(exc),
-                    model_dir=str(self.model_dir),
+                    model_dir=str(self.model_link),
                 )
             return
         with self._lock:
@@ -331,7 +332,7 @@ class SpeechModelDownloadManager:
                 state="ready",
                 downloaded_bytes=self._status.downloaded_bytes,
                 total_bytes=self._status.total_bytes,
-                model_dir=str(self.model_dir),
+                model_dir=str(self.model_link),
             )
 
     def _update_progress(self, downloaded: int, total: int | None) -> None:
