@@ -107,6 +107,7 @@ class StartThreadCommandStrategy(CodexWsCommandStrategy):
         result = await context.manager.start_thread(
             project_path=_payload_text(context.payload, "project_path") or None,
             host_id=_payload_text(context.payload, "host_id") or "local",
+            prompt=_payload_text(context.payload, "prompt") or None,
         )
         await _publish_workspace(context.manager, context.outbox)
         return result

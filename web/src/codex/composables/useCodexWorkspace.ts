@@ -748,11 +748,12 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     }
   }
 
-  async function startThread(projectPath?: string, hostId = 'local') {
+  async function startThread(projectPath?: string, hostId = 'local', prompt?: string) {
     return await runCommand(async () => {
       const payload = await socket.sendCommand<CodexThreadCreateResponse>('start_thread', {
         project_path: projectPath?.trim() || projectPathDraft.value.trim() || undefined,
         ...((hostId.trim() || 'local') !== 'local' ? { host_id: hostId.trim() } : {}),
+        ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
       })
       const threadId = payload.thread_id
       if (payload.state) {
@@ -773,13 +774,33 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     })
   }
 
+  // "New chat": clear the active thread so the next message creates a fresh
+  // projectless thread. The thread is created lazily when the first message is
+  // sent, and its generated directory is named from that prompt.
+  function startNewChat() {
+    activeThreadId.value = ''
+    activeSubscriptionId.value = ''
+    persistActiveThreadId('', persistThreadSelection)
+    successMessage.value = ''
+  }
+
   async function sendPrompt(input: string | CodexPromptSubmission) {
-    const threadId = activeThreadId.value
     const submission = promptSubmissionFromInput(input)
     const message = submission.prompt.trim()
     const attachments = Array.isArray(submission.attachments) ? submission.attachments : []
-    if (!threadId || (!message && !attachments.length)) {
+    if (!message && !attachments.length) {
       return
+    }
+    // A fresh "new chat" has no thread yet: create one projectless thread now,
+    // naming its generated directory from this first prompt (like the desktop
+    // app, whose directory name derives from the message text).
+    let threadId = activeThreadId.value
+    if (!threadId) {
+      const threadPayload = await startThread(undefined, activeThreadHostId.value, message)
+      threadId = threadPayload?.thread_id ?? ''
+      if (!threadId) {
+        return
+      }
     }
     await runCommand(async () => {
       await socket.sendCommand('send_prompt', {
@@ -1308,6 +1329,7 @@ export function useCodexWorkspace(options: UseCodexWorkspaceOptions = {}) {
     setMode,
     setThreadGoal,
     startEmbedThread,
+    startNewChat,
     startThread,
     status,
     steerPrompt,

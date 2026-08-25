@@ -205,7 +205,7 @@ function stringValue(value: unknown) {
     <CodexComposer
       v-if="!activeUserInputRequest"
       v-model="composerText"
-      :disabled="!activeThreadId || socketStatus !== 'open' || isThreadLoading"
+      :disabled="socketStatus !== 'open' || isThreadLoading"
       :busy="isCommandBusy"
       :is-working="isActiveTurnInProgress"
       :mode="activeMode"

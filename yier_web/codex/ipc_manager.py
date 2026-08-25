@@ -8,10 +8,11 @@ import json
 import logging
 import os
 from pathlib import Path
-import re
 import shlex
 import uuid
 from typing import Callable
+
+from pypinyin import lazy_pinyin
 
 from codex_bridge import (
     AppServerConfig,
@@ -138,20 +139,38 @@ def _codex_home(home_dir: Path | None = None) -> Path:
 # Projectless threads live under a generated directory in the user's
 # Documents/Codex folder, mirroring the desktop app's "new chat" behavior.
 CODEX_PROJECTLESS_ROOT = ("Documents", "Codex")
+PROJECTLESS_DIR_NAME_SYLLABLE_LIMIT = 2
 PROJECTLESS_DIR_NAME_BYTES_LIMIT = 80
-PROJECTLESS_DIR_NAME_WORD_LIMIT = 6
 
 
 def _projectless_thread_name(
     directory_name: str | None = None,
     prompt: str | None = None,
 ) -> str:
-    source = directory_name if directory_name is not None else prompt
-    words = re.findall(r"[a-z0-9]+", (source or "").lower())
-    if not words:
+    # The desktop app derives the directory name from the first message text and
+    # keeps only latin tokens, so a Chinese prompt becomes a pinyin-like name.
+    # We mirror that by transliterating the prompt to pinyin and keeping the
+    # first two syllables. A prompt with no useful pinyin (or empty) falls back
+    # to a generic name.
+    source = (directory_name if directory_name is not None else prompt) or ""
+    syllables = _pinyin_syllables(source)
+    if not syllables:
         return "new-chat"
-    selected = words if directory_name is not None else words[:PROJECTLESS_DIR_NAME_WORD_LIMIT]
-    return "-".join(selected)[:PROJECTLESS_DIR_NAME_BYTES_LIMIT]
+    return "-".join(syllables)[:PROJECTLESS_DIR_NAME_BYTES_LIMIT]
+
+
+def _pinyin_syllables(text: str) -> list[str]:
+    # pypinyin keeps latin tokens as-is when errors="default", so a purely
+    # latin prompt like "ni ha" comes back as a single string with a space.
+    # Split on whitespace so each token is its own syllable, then cap to the
+    # first N syllables.
+    syllables = lazy_pinyin(text, errors="default")
+    tokens: list[str] = []
+    for part in syllables:
+        for token in part.lower().split():
+            if token:
+                tokens.append(token)
+    return tokens[:PROJECTLESS_DIR_NAME_SYLLABLE_LIMIT]
 
 
 def _projectless_date_directory(now: datetime | None = None) -> str:
@@ -770,11 +789,13 @@ print(json.dumps({
         *,
         project_path: str | None = None,
         host_id: str = "local",
+        prompt: str | None = None,
     ) -> JsonDict:
         resolved_host_id = self._resolve_host_id(host_id)
         params = self._thread_start_params(
             project_path=project_path,
             host_id=resolved_host_id,
+            prompt=prompt,
         )
         session = self._new_session(self._config(host_id=resolved_host_id))
         await session.start()
@@ -1763,6 +1784,7 @@ print(json.dumps({
         *,
         project_path: str | None,
         host_id: str,
+        prompt: str | None = None,
     ) -> JsonDict:
         settings = self.config_service.load_web_settings().codex
         remote_connection = self._connection_for_host(host_id, settings=settings)
@@ -1772,12 +1794,12 @@ print(json.dumps({
             resolved_project_path = self.config_service.resolve_project_path(project_path)
         else:
             # No project selected: create a projectless thread under
-            # ~/Documents/Codex/<date>/<name>, like the desktop "new chat".
-            # The directory name is derived from the new-thread hint; when
-            # none is supplied (a fresh chat created before its first prompt)
-            # this falls back to "new-chat".
+            # ~/Documents/Codex/<date>/<name> whose name comes from the first
+            # prompt (latin tokens only, like the desktop app), uniguified up to
+            # 100 attempts.
             resolved_project_path = _create_projectless_thread_dir(
                 self.config_service.home_dir,
+                prompt=prompt,
             )
         return {"cwd": resolved_project_path}
 

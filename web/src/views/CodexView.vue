@@ -56,6 +56,10 @@ function startMobileThread(projectPath: string, hostId?: string) {
   }
   closeMobileThreadDrawer()
 }
+
+function startNewChat() {
+  void codex.startNewChat()
+}
 </script>
 
 <template>
@@ -74,6 +78,7 @@ function startMobileThread(projectPath: string, hostId?: string) {
       :busy="codex.isBooting || codex.isRenaming || codex.isArchiving"
       @select-thread="codex.selectThread"
       @start-thread="codex.startThread"
+      @new-chat="startNewChat"
       @archive-thread="codex.archiveThread"
       @fork-thread="codex.forkThread"
       @rename-thread="codex.renameThread"
@@ -198,6 +203,7 @@ function startMobileThread(projectPath: string, hostId?: string) {
             :busy="codex.isBooting || codex.isRenaming || codex.isArchiving"
             @select-thread="selectMobileThread"
             @start-thread="startMobileThread"
+            @new-chat="startNewChat"
             @archive-thread="codex.archiveThread"
             @fork-thread="codex.forkThread"
             @rename-thread="codex.renameThread"

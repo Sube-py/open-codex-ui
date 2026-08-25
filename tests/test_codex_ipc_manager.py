@@ -1084,8 +1084,8 @@ def test_codex_projectless_thread_uses_generated_documents_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A thread started without a project resolves to a generated directory
-    under Documents/Codex/<date>/<name> (with work/ and outputs/), matching the
-    desktop app's projectless new-chat behavior."""
+    under Documents/Codex/<date>/<name> (with work/ and outputs/). The name is
+    derived from the first prompt via pinyin, taking the first two syllables."""
 
     async def scenario() -> None:
         codex_home = tmp_path / "codex-home"
@@ -1103,16 +1103,53 @@ def test_codex_projectless_thread_uses_generated_documents_dir(
         )
 
         await manager.start()
-        await manager.start_thread(project_path=None)
+        await manager.start_thread(project_path=None, prompt="微信是啥")
 
         created_session = factory.by_thread_id("thread-created")
         start_params = created_session.start_new_thread_calls[-1]
         cwd = start_params["cwd"]
         path = Path(cwd)
         assert path.is_relative_to(tmp_path / "home" / "Documents" / "Codex")
-        assert path.parent.name == "new-chat" or path.name == "new-chat"
+        # Pinyin, first two syllables.
+        assert path.name == "wei-xin"
         assert (path / "work").is_dir()
         assert (path / "outputs").is_dir()
+
+        await manager.stop()
+
+    asyncio.run(scenario())
+
+
+def test_codex_projectless_thread_name_from_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pure-latin prompt is kept as-is; an empty prompt falls back to the
+    generic name, and duplicates get a numeric suffix."""
+
+    async def scenario() -> None:
+        codex_home = tmp_path / "codex-home"
+        codex_home.mkdir()
+        monkeypatch.setenv("CODEX_HOME", str(codex_home))
+        config_service = AppConfigService(
+            project_root=tmp_path / "project",
+            home_dir=tmp_path / "home",
+        )
+        factory = FakeSessionFactory()
+        manager = CodexIpcManager(
+            config_service=config_service,
+            event_broker=EventStreamBroker(),
+            session_factory=factory,
+        )
+
+        await manager.start()
+        await manager.start_thread(project_path=None, prompt="ni ha")
+
+        created_session = factory.by_thread_id("thread-created")
+        start_params = created_session.start_new_thread_calls[-1]
+        cwd = start_params["cwd"]
+        path = Path(cwd)
+        assert path.is_relative_to(tmp_path / "home" / "Documents" / "Codex")
+        assert path.name == "ni-ha"
 
         await manager.stop()
 

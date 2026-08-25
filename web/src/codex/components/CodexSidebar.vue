@@ -30,6 +30,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   selectThread: [threadId: string]
   startThread: [projectPath: string, hostId: string]
+  newChat: []
   archiveThread: [threadId: string]
   forkThread: [threadId: string]
   renameThread: [threadId: string, name: string]
@@ -57,6 +58,17 @@ const threadActionMenu = ref<MenuRef | null>(null)
 const threadActionTarget = ref<CodexNativeSessionSummary | null>(null)
 const userExpandedProjects = ref<Record<string, boolean>>(readExpandedProjects())
 const visibleThreadLimits = ref<Record<string, number>>({})
+
+// A projectless "new chat" does not create a thread immediately: it clears the
+// active thread and lets the user type. When the first message is sent the
+// view (via the workspace composable) creates the thread and names its
+// generated directory from that prompt.
+function startNewChat() {
+  if (props.busy) {
+    return
+  }
+  emit('newChat')
+}
 
 const projects = computed<ProjectWithKey[]>(() =>
   props.workspace.projects
@@ -451,6 +463,19 @@ async function copyThreadId(threadId: string) {
               data-codex-project-start-thread
               :disabled="busy || !project.project_path.trim()"
               @click.stop="startProjectThread(project)"
+            />
+            <Button
+              v-else
+              icon="pi pi-pen-to-square"
+              severity="secondary"
+              text
+              rounded
+              size="small"
+              class="pointer-events-none !absolute right-0 z-10 !h-7 !w-7 !min-w-7 !p-0 opacity-0 transition-opacity group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100"
+              aria-label="New Codex chat"
+              data-codex-new-chat
+              :disabled="busy"
+              @click.stop="startNewChat()"
             />
           </div>
 
