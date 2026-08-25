@@ -1,6 +1,6 @@
 [project]
 name = "open-codex-ui"
-version = "0.1.19"
+version = "0.1.20"
 description = "Remote-friendly web workspace for Codex sessions"
 readme = "README.md"
 authors = [{ name = "Sube" }]
