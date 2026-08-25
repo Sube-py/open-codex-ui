@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 import tarfile
+from threading import Event
 from typing import Any
 
 import httpx
@@ -10,6 +11,7 @@ import pytest
 
 from yier_web.speech_models import (
     SpeechModelError,
+    SpeechModelDownloadManager,
     SpeechModelManager,
     SpeechModelSpec,
 )
@@ -68,6 +70,10 @@ def test_install_resumes_download_activates_model_and_removes_it(
         return httpx.Response(206, content=archive[split_at:])
 
     manager.client_factory = _client_factory(handler)
+    progress: list[tuple[int, int | None]] = []
+    manager.progress_callback = lambda downloaded, total: progress.append(
+        (downloaded, total)
+    )
 
     assert manager.install() == 0
     assert len(requests) == 1
@@ -76,6 +82,7 @@ def test_install_resumes_download_activates_model_and_removes_it(
     assert manager.model_link.resolve() == manager.model_dir
     assert (manager.model_link / "tokens.txt").is_file()
     assert not manager.partial_archive.exists()
+    assert progress[-1] == (len(archive), len(archive))
 
     assert manager.remove() == 0
     assert not manager.model_dir.exists()
@@ -141,4 +148,40 @@ def test_remove_refuses_custom_model_link(tmp_path: Path) -> None:
 
     with pytest.raises(SpeechModelError, match="custom model link"):
         manager.remove()
+
+
+def test_download_manager_reports_progress_and_passes_proxy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = Event()
+    release = Event()
+    captured_proxy: list[str] = []
+
+    def fake_install(manager: SpeechModelManager) -> int:
+        captured_proxy.append(manager.proxy)
+        started.set()
+        manager._report_progress(5, 10)
+        assert release.wait(timeout=1)
+        manager._report_progress(10, 10)
+        return 0
+
+    monkeypatch.setattr(SpeechModelManager, "install", fake_install)
+    download_manager = SpeechModelDownloadManager(models_dir=tmp_path / "models")
+    initial = download_manager.start(" http://127.0.0.1:7890 ")
+
+    assert initial.state == "downloading"
+    assert started.wait(timeout=1)
+    assert download_manager.status().downloaded_bytes == 5
+    release.set()
+    assert _wait_for_download_state(download_manager, "ready")
+    assert captured_proxy == ["http://127.0.0.1:7890"]
+
+
+def _wait_for_download_state(manager: Any, expected: str) -> bool:
+    for _ in range(100):
+        if manager.status().state == expected:
+            return True
+        Event().wait(0.01)
+    return False
     assert manager.model_link.is_symlink()

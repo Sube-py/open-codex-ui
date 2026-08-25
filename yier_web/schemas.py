@@ -26,6 +26,7 @@ CodexApprovalsReviewer = Literal["user", "guardian_subagent"]
 CodexProjectKind = Literal["local", "remote"]
 AuthConfigSource = Literal["environment", "settings", "default"]
 SpeechConfigSource = Literal["environment", "settings", "default"]
+SpeechDownloadState = Literal["idle", "downloading", "ready", "error"]
 
 
 class StoredAuthSettings(BaseModel):
@@ -436,6 +437,25 @@ class SaveSpeechConfigRequest(BaseModel):
     @classmethod
     def strip_speech_config_strings(cls, value: str) -> str:
         return value.strip()
+
+
+class SpeechModelDownloadRequest(BaseModel):
+    proxy: str | None = None
+
+    @field_validator("proxy")
+    @classmethod
+    def strip_proxy(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
+class SpeechModelDownloadResponse(BaseModel):
+    state: SpeechDownloadState = "idle"
+    downloaded_bytes: int = 0
+    total_bytes: int | None = None
+    error: str = ""
+    model_dir: str = ""
 
 
 class SaveLLMRequest(BaseModel):

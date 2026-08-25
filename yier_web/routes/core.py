@@ -27,16 +27,31 @@ from yier_web.schemas import (
     SaveLLMRequest,
     SaveMCPConfigRequest,
     SaveSpeechConfigRequest,
+    SpeechModelDownloadRequest,
+    SpeechModelDownloadResponse,
     SelectDirectoryRequest,
     SelectDirectoryResponse,
 )
 from yier_web.speech import SpeechRecognizerConfig
+from yier_web.speech_models import SpeechModelDownloadStatus
 
 EVENT_STREAM_PING_INTERVAL_SECONDS = 15.0
 
 
 def _service(state: State, name: str) -> Any:
     return getattr(state, name)
+
+
+def _speech_download_response(
+    status: SpeechModelDownloadStatus,
+) -> SpeechModelDownloadResponse:
+    return SpeechModelDownloadResponse(
+        state=status.state,
+        downloaded_bytes=status.downloaded_bytes,
+        total_bytes=status.total_bytes,
+        error=status.error,
+        model_dir=status.model_dir,
+    )
 
 
 def _shutdown_event(state: State) -> asyncio.Event | None:
@@ -207,6 +222,23 @@ class ConfigController(Controller):
         speech_service = _service(state, "speech_service")
         speech_service.reconfigure(SpeechRecognizerConfig.from_settings(config_service))
         return Response(content=speech_service.public_config().model_dump())
+
+    @get("/speech/model-download")
+    async def get_speech_model_download_status(
+        self,
+        state: State,
+    ) -> SpeechModelDownloadResponse:
+        status = _service(state, "speech_model_download_manager").status()
+        return _speech_download_response(status)
+
+    @post("/speech/model-download")
+    async def start_speech_model_download(
+        self,
+        data: SpeechModelDownloadRequest,
+        state: State,
+    ) -> SpeechModelDownloadResponse:
+        status = _service(state, "speech_model_download_manager").start(data.proxy)
+        return _speech_download_response(status)
 
     @put("/llm")
     async def save_llm_config(self, data: SaveLLMRequest, state: State) -> Response:

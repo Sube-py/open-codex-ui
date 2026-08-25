@@ -35,6 +35,7 @@ from yier_web.routes.core import (
     wait_for_event_stream_item as wait_for_event_stream_item,
 )
 from yier_web.speech import SpeechRecognitionService, SpeechRecognizerConfig
+from yier_web.speech_models import SpeechModelDownloadManager
 
 
 @dataclass(slots=True)
@@ -47,6 +48,9 @@ class AppServices:
     auth_service: AuthService
     speech_service: SpeechRecognitionService = field(
         default_factory=SpeechRecognitionService
+    )
+    speech_model_download_manager: SpeechModelDownloadManager = field(
+        default_factory=SpeechModelDownloadManager
     )
 
 
@@ -138,6 +142,9 @@ def build_services(
         speech_service=SpeechRecognitionService(
             config=SpeechRecognizerConfig.from_settings(config_service)
         ),
+        speech_model_download_manager=SpeechModelDownloadManager(
+            models_dir=config_service.yier_root / "models"
+        ),
     )
 
 
@@ -214,6 +221,9 @@ def create_app(
         app.state.directory_picker_service = app_services.directory_picker_service
         app.state.auth_service = app_services.auth_service
         app.state.speech_service = app_services.speech_service
+        app.state.speech_model_download_manager = (
+            app_services.speech_model_download_manager
+        )
         await app_services.codex_ipc_manager.start()
         try:
             yield

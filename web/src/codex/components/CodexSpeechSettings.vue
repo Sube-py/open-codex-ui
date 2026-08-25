@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
@@ -10,6 +10,8 @@ import { apiGet, apiPost, apiPut } from '../../lib/api'
 import type {
   SaveSpeechConfigRequest,
   SelectDirectoryResponse,
+  SpeechModelDownloadRequest,
+  SpeechModelDownloadResponse,
   SpeechConfigResponse,
 } from '../../types/api'
 
@@ -26,6 +28,15 @@ const isSaving = ref(false)
 const isPickingDirectory = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+const downloadProxy = ref('')
+const downloadStatus = ref<SpeechModelDownloadResponse>({
+  state: 'idle',
+  downloaded_bytes: 0,
+  total_bytes: null,
+  error: '',
+  model_dir: '',
+})
+let downloadPollTimer: number | undefined
 const providerOptions = [
   { label: 'CPU', value: 'cpu' },
   { label: 'Core ML', value: 'coreml' },
@@ -42,9 +53,27 @@ const numThreadsManagedByEnvironment = computed(
   () => speechConfig.value?.num_threads_source === 'environment',
 )
 const isBusy = computed(
-  () => props.busy || isLoading.value || isSaving.value || isPickingDirectory.value,
+  () =>
+    props.busy ||
+    isLoading.value ||
+    isSaving.value ||
+    isPickingDirectory.value ||
+    downloadStatus.value.state === 'downloading',
 )
 const modelReady = computed(() => speechConfig.value?.status === 'ready')
+const isDownloading = computed(() => downloadStatus.value.state === 'downloading')
+const downloadPercentage = computed(() => {
+  const { downloaded_bytes: downloaded, total_bytes: total } = downloadStatus.value
+  if (!total) return 0
+  return Math.min(100, Math.round((downloaded / total) * 100))
+})
+const canDownloadModel = computed(
+  () =>
+    !modelReady.value &&
+    !modelDirManagedByEnvironment.value &&
+    Boolean(downloadStatus.value.model_dir) &&
+    modelDir.value === downloadStatus.value.model_dir,
+)
 
 function resetDraft(config: SpeechConfigResponse) {
   speechConfig.value = config
@@ -62,6 +91,56 @@ async function loadSpeechConfig() {
     errorMessage.value = error instanceof Error ? error.message : String(error)
   } finally {
     isLoading.value = false
+  }
+}
+
+async function loadDownloadStatus() {
+  try {
+    downloadStatus.value = await apiGet<SpeechModelDownloadResponse>(
+      '/api/config/speech/model-download',
+    )
+    if (downloadStatus.value.state === 'error' && downloadStatus.value.error) {
+      errorMessage.value = downloadStatus.value.error
+    }
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+function scheduleDownloadPoll() {
+  if (downloadPollTimer !== undefined) {
+    window.clearTimeout(downloadPollTimer)
+  }
+  if (!isDownloading.value) return
+  downloadPollTimer = window.setTimeout(async () => {
+    await loadDownloadStatus()
+    if (downloadStatus.value.state === 'ready') {
+      await loadSpeechConfig()
+      successMessage.value = 'Voice model is ready.'
+    }
+    scheduleDownloadPoll()
+  }, 500)
+}
+
+async function downloadModel() {
+  if (!canDownloadModel.value || isBusy.value) return
+  errorMessage.value = ''
+  successMessage.value = ''
+  const payload = {
+    proxy: downloadProxy.value.trim() || null,
+  } satisfies SpeechModelDownloadRequest
+  try {
+    downloadStatus.value = await apiPost<SpeechModelDownloadResponse>(
+      '/api/config/speech/model-download',
+      payload,
+    )
+    scheduleDownloadPoll()
+    if (downloadStatus.value.state === 'ready') {
+      await loadSpeechConfig()
+      successMessage.value = 'Voice model is ready.'
+    }
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error)
   }
 }
 
@@ -115,6 +194,13 @@ async function pickModelDirectory() {
 
 onMounted(() => {
   void loadSpeechConfig()
+  void loadDownloadStatus().then(scheduleDownloadPoll)
+})
+
+onUnmounted(() => {
+  if (downloadPollTimer !== undefined) {
+    window.clearTimeout(downloadPollTimer)
+  }
 })
 </script>
 
@@ -149,6 +235,49 @@ onMounted(() => {
     >
       {{ speechConfig.detail }}
     </Message>
+
+    <div
+      v-if="canDownloadModel"
+      class="grid gap-3 rounded-md border border-[color:var(--app-border)] bg-[color:var(--app-surface-muted)] p-3"
+      data-codex-speech-download
+    >
+      <div class="flex items-center justify-between gap-3">
+        <div class="grid gap-1">
+          <span class="text-sm font-semibold text-[color:var(--app-text)]">Download standard model</span>
+          <span class="text-xs text-[color:var(--app-text-muted)]">
+            Downloads the bilingual sherpa-onnx model to the default model directory.
+          </span>
+        </div>
+        <Button
+          label="Download"
+          icon="pi pi-download"
+          :loading="isDownloading"
+          :disabled="isBusy"
+          data-codex-download-speech-model
+          @click="downloadModel"
+        />
+      </div>
+      <InputText
+        v-model="downloadProxy"
+        class="w-full"
+        placeholder="HTTP proxy (optional), e.g. http://127.0.0.1:7890"
+        :disabled="isBusy"
+        autocomplete="url"
+        data-codex-speech-download-proxy
+      />
+      <div v-if="isDownloading" class="grid gap-1.5" data-codex-speech-download-progress>
+        <div class="h-1.5 overflow-hidden rounded-full bg-[color:var(--app-border)]">
+          <div
+            class="h-full rounded-full bg-[color:var(--app-accent)] transition-[width] duration-300"
+            :class="downloadStatus.total_bytes ? '' : 'w-1/3 animate-pulse'"
+            :style="downloadStatus.total_bytes ? { width: `${downloadPercentage}%` } : undefined"
+          ></div>
+        </div>
+        <span class="text-xs text-[color:var(--app-text-muted)]">
+          {{ downloadStatus.total_bytes ? `${downloadPercentage}% downloaded` : 'Downloading model...' }}
+        </span>
+      </div>
+    </div>
 
     <div class="grid gap-2">
       <div class="flex items-center justify-between gap-3">

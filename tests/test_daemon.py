@@ -249,7 +249,8 @@ def test_uv_tool_updater_updates_persistent_command_and_restarts_service(
             "tool",
             "install",
             "--force",
-            "--upgrade",
+            "--upgrade-package",
+            "open-codex-ui",
             "open-codex-ui",
         ],
     ]
@@ -322,7 +323,8 @@ def test_uv_tool_updater_does_not_start_stopped_service(tmp_path: Path) -> None:
         "tool",
         "install",
         "--force",
-        "--upgrade",
+        "--upgrade-package",
+        "open-codex-ui",
         "open-codex-ui",
     ]
     assert service.actions == []

@@ -114,7 +114,8 @@ class UvToolUpdater:
                 "tool",
                 "install",
                 "--force",
-                "--upgrade",
+                "--upgrade-package",
+                PACKAGE_NAME,
                 PACKAGE_NAME,
             ]
         )

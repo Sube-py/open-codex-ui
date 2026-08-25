@@ -46,6 +46,20 @@ export interface SaveSpeechConfigRequest {
   num_threads: number
 }
 
+export type SpeechModelDownloadState = 'idle' | 'downloading' | 'ready' | 'error'
+
+export interface SpeechModelDownloadRequest {
+  proxy: string | null
+}
+
+export interface SpeechModelDownloadResponse {
+  state: SpeechModelDownloadState
+  downloaded_bytes: number
+  total_bytes: number | null
+  error: string
+  model_dir: string
+}
+
 export interface SelectDirectoryResponse {
   selected: boolean
   project_path: string

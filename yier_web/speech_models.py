@@ -6,7 +6,8 @@ from pathlib import Path
 import shutil
 import tarfile
 import tempfile
-from typing import Callable
+from threading import Lock, Thread
+from typing import Callable, Literal
 from uuid import uuid4
 
 import httpx
@@ -28,6 +29,9 @@ STANDARD_MODEL_SHA256 = (
 
 class SpeechModelError(RuntimeError):
     """Raised when a managed speech model operation fails."""
+
+
+SpeechDownloadState = Literal["idle", "downloading", "ready", "error"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +58,8 @@ class SpeechModelManager:
         *,
         spec: SpeechModelSpec = STANDARD_MODEL,
         client_factory: Callable[[], httpx.Client] | None = None,
+        proxy: str | None = None,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> None:
         self.models_dir = (
             (models_dir or DEFAULT_MODELS_DIR).expanduser().resolve()
@@ -62,7 +68,9 @@ class SpeechModelManager:
         self.model_dir = self.models_dir / spec.name
         self.model_link = self.models_dir / spec.link_name
         self.partial_archive = self.models_dir / f".{spec.archive_name}.part"
-        self.client_factory = client_factory or self._default_client
+        self.proxy = proxy.strip() if proxy else ""
+        self.progress_callback = progress_callback
+        self.client_factory = client_factory or self._build_default_client
 
     def install(self, *, force: bool = False) -> int:
         self.models_dir.mkdir(parents=True, exist_ok=True)
@@ -137,11 +145,13 @@ class SpeechModelManager:
                         response,
                         downloaded_before_response=downloaded,
                     )
+                    self._report_progress(downloaded, total)
                     last_percentage = -1
                     with self.partial_archive.open(mode) as archive_file:
                         for chunk in response.iter_bytes():
                             archive_file.write(chunk)
                             downloaded += len(chunk)
+                            self._report_progress(downloaded, total)
                             last_percentage = _print_download_progress(
                                 downloaded,
                                 total,
@@ -151,6 +161,10 @@ class SpeechModelManager:
                         print()
         except (OSError, httpx.HTTPError) as exc:
             raise SpeechModelError(f"Unable to download the speech model: {exc}") from exc
+
+    def _report_progress(self, downloaded: int, total: int | None) -> None:
+        if self.progress_callback is not None:
+            self.progress_callback(downloaded, total)
 
     def _verify_archive(self) -> None:
         digest = hashlib.sha256()
@@ -245,13 +259,100 @@ class SpeechModelManager:
                 f"streaming model at {model_dir}."
             )
 
-    @staticmethod
-    def _default_client() -> httpx.Client:
+    def _build_default_client(self) -> httpx.Client:
         return httpx.Client(
+            proxy=self.proxy or None,
             follow_redirects=True,
             timeout=httpx.Timeout(60.0, connect=30.0),
             trust_env=True,
         )
+
+
+class SpeechModelDownloadManager:
+    """Run the standard model download off the request thread and expose progress."""
+
+    def __init__(self, models_dir: Path | None = None) -> None:
+        self.models_dir = (
+            (models_dir or DEFAULT_MODELS_DIR).expanduser().resolve()
+        )
+        self.model_dir = self.models_dir / STANDARD_MODEL_NAME
+        self._lock = Lock()
+        self._thread: Thread | None = None
+        self._status = SpeechModelDownloadStatus(model_dir=str(self.model_dir))
+
+    def status(self) -> "SpeechModelDownloadStatus":
+        with self._lock:
+            return self._status
+
+    def start(self, proxy: str | None = None) -> "SpeechModelDownloadStatus":
+        normalized_proxy = proxy.strip() if proxy else ""
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return self._status
+            manager = SpeechModelManager(models_dir=self.models_dir)
+            if manager._is_valid_model(self.model_dir) and manager._is_active_model():
+                self._status = SpeechModelDownloadStatus(
+                    state="ready",
+                    model_dir=str(self.model_dir),
+                )
+                return self._status
+            self._status = SpeechModelDownloadStatus(
+                state="downloading",
+                proxy=normalized_proxy,
+                model_dir=str(self.model_dir),
+            )
+            self._thread = Thread(
+                target=self._download,
+                args=(normalized_proxy,),
+                name="speech-model-download",
+                daemon=True,
+            )
+            self._thread.start()
+            return self._status
+
+    def _download(self, proxy: str) -> None:
+        try:
+            manager = SpeechModelManager(
+                models_dir=self.models_dir,
+                proxy=proxy,
+                progress_callback=self._update_progress,
+            )
+            manager.install()
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                self._status = SpeechModelDownloadStatus(
+                    state="error",
+                    error=str(exc),
+                    model_dir=str(self.model_dir),
+                )
+            return
+        with self._lock:
+            self._status = SpeechModelDownloadStatus(
+                state="ready",
+                downloaded_bytes=self._status.downloaded_bytes,
+                total_bytes=self._status.total_bytes,
+                model_dir=str(self.model_dir),
+            )
+
+    def _update_progress(self, downloaded: int, total: int | None) -> None:
+        with self._lock:
+            self._status = SpeechModelDownloadStatus(
+                state="downloading",
+                downloaded_bytes=downloaded,
+                total_bytes=total,
+                proxy=self._status.proxy,
+                model_dir=self._status.model_dir,
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class SpeechModelDownloadStatus:
+    state: SpeechDownloadState = "idle"
+    downloaded_bytes: int = 0
+    total_bytes: int | None = None
+    error: str = ""
+    proxy: str = ""
+    model_dir: str = ""
 
 
 def _response_total_bytes(
