@@ -182,6 +182,10 @@ class SendPromptCommandStrategy(ThreadCommandStrategy):
             or None,
             sandbox_policy=_payload_dict(context.payload, "sandbox_policy"),
         )
+        # Refresh the workspace so a newly created projectless thread (or any
+        # thread whose turn just started) shows up in the recents list without
+        # a manual page reload. The renderer consumes the 'workspace' event.
+        await _publish_workspace(context.manager, context.outbox)
         return {"thread_id": thread_id}
 
 
